@@ -20,7 +20,6 @@ import { psiAnalyzeTool } from './pagespeed.js';
 import { cruxQueryTool, cruxHistoryTool } from './crux.js';
 import { cwvReportTool } from './core-web-vitals.js';
 import { lighthouseAuditTool } from './lighthouse.js';
-import { registerTool } from '../index.js';
 import type { ToolDefinition } from '../../types/tools.js';
 
 /** All Performance tools */
@@ -32,8 +31,3 @@ export const performanceTools: ToolDefinition<any, any>[] = [
   cwvReportTool,
   lighthouseAuditTool,
 ];
-
-/** Register all Performance tools */
-export function registerPerformanceTools(): void {
-  performanceTools.forEach((tool) => registerTool(tool));
-}

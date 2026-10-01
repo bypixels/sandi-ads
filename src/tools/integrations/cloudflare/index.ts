@@ -30,7 +30,6 @@ import {
   cfPurgeCacheTool,
 } from './analytics.js';
 import { cfFirewallEventsTool } from './firewall.js';
-import { registerTool } from '../../index.js';
 import type { ToolDefinition } from '../../../types/tools.js';
 
 /** All Cloudflare tools */
@@ -43,8 +42,3 @@ export const cloudflareTools: ToolDefinition<any, any>[] = [
   cfPurgeCacheTool,
   cfFirewallEventsTool,
 ];
-
-/** Register all Cloudflare tools */
-export function registerCloudflareTools(): void {
-  cloudflareTools.forEach((tool) => registerTool(tool));
-}

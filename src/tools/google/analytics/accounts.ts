@@ -3,22 +3,13 @@
  */
 
 import { z } from 'zod';
-import { google } from 'googleapis';
-import { getGoogleAuth } from '../api-wrapper.js';
+import { getAnalyticsAdminClient } from './clients.js';
 import { createServiceLogger } from '../../../utils/logger.js';
 import type { ToolDefinition } from '../../../types/tools.js';
 import { ToolCategory } from '../../../types/tools.js';
 import type { GA4Account, GA4Property } from '../../../types/google.js';
 
 const log = createServiceLogger('ga4-accounts');
-
-/**
- * Get authenticated Analytics Admin API client
- */
-function getAnalyticsAdminClient() {
-  const auth = getGoogleAuth('analytics');
-  return google.analyticsadmin({ version: 'v1beta', auth });
-}
 
 // ============================================
 // List Accounts

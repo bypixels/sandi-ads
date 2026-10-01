@@ -7,61 +7,17 @@ import { authenticateRequest } from '../auth.js';
 import {
   getDashboardData,
   getReportData,
-  executeToolByName,
   listTools,
 } from '../services/dashboard-data.js';
 import { authManager } from '../../auth/index.js';
 import { cacheStats } from '../../utils/cache.js';
 import { rateLimiter } from '../../utils/rate-limiter.js';
-import { MCPError } from '../../types/errors.js';
-
-/** Send JSON response */
-function sendJson(res: ServerResponse, data: unknown, status = 200): void {
-  res.writeHead(status, {
-    'Content-Type': 'application/json',
-    'Cache-Control': 'no-cache',
-  });
-  res.end(JSON.stringify(data));
-}
-
-/** Send error response */
-function sendError(res: ServerResponse, message: string, status = 500): void {
-  sendJson(res, { error: message }, status);
-}
-
-/** Parse URL search params */
-function getParams(req: IncomingMessage): URLSearchParams {
-  const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
-  return url.searchParams;
-}
-
-const MAX_BODY_SIZE = 1024 * 100; // 100 KB
-
-/** Parse JSON body from POST request */
-async function parseBody(req: IncomingMessage): Promise<unknown> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    let size = 0;
-    req.on('data', (chunk: Buffer) => {
-      size += chunk.length;
-      if (size > MAX_BODY_SIZE) {
-        req.destroy();
-        reject(new Error('Request body too large'));
-        return;
-      }
-      chunks.push(chunk);
-    });
-    req.on('end', () => {
-      try {
-        const body = Buffer.concat(chunks).toString('utf-8');
-        resolve(body ? JSON.parse(body) : {});
-      } catch {
-        reject(new Error('Invalid JSON body'));
-      }
-    });
-    req.on('error', reject);
-  });
-}
+import { MCPError, ErrorCode } from '../../types/errors.js';
+import { getMutationsStatus } from '../services/mutations.js';
+import { auditLog } from '../services/audit-log.js';
+import { streamSuggestions, isSuggestConfigured, type SuggestEvent } from '../services/dashboard-suggest.js';
+import { guardedExecute } from '../services/guarded-execution.js';
+import { sendJson, sendError, parseBody, getParams } from './route-helpers.js';
 
 /**
  * Route API requests. Returns true if handled, false if not matched.
@@ -112,6 +68,56 @@ export async function handleApiRoute(
     return true;
   }
 
+  // POST /api/dashboard/suggest — SSE stream of Claude's interpretation
+  if (pathname === '/api/dashboard/suggest' && req.method === 'POST') {
+    if (!isSuggestConfigured()) {
+      sendError(res, 'ANTHROPIC_API_KEY no configurado en Settings', 400);
+      return true;
+    }
+    let body: { url?: string; analysis?: unknown };
+    try {
+      body = (await parseBody(req)) as typeof body;
+    } catch (err) {
+      sendError(res, err instanceof Error ? err.message : 'Bad request', 400);
+      return true;
+    }
+    if (!body.url || !body.analysis) {
+      sendError(res, 'url y analysis son requeridos', 400);
+      return true;
+    }
+
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache, no-transform',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    });
+
+    const writeEvent = (event: SuggestEvent) => {
+      try { res.write(`data: ${JSON.stringify(event)}\n\n`); } catch { /* client gone */ }
+    };
+    const heartbeat = setInterval(() => {
+      try { res.write(': hb\n\n'); } catch { /* noop */ }
+    }, 15000);
+
+    let aborted = false;
+    req.on('close', () => { aborted = true; });
+
+    try {
+      await streamSuggestions(
+        { url: body.url, analysis: body.analysis },
+        (event) => { if (!aborted) writeEvent(event); },
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      writeEvent({ type: 'error', message: msg });
+    } finally {
+      clearInterval(heartbeat);
+      try { res.end(); } catch { /* noop */ }
+    }
+    return true;
+  }
+
   // GET /api/report/site-health?url=X
   if (pathname === '/api/report/site-health' && req.method === 'GET') {
     const url = getParams(req).get('url');
@@ -146,18 +152,52 @@ export async function handleApiRoute(
     return true;
   }
 
-  // POST /api/tool/:name
+  // POST /api/tool/:name — all policy/audit lives in guardedExecute.
+  // Authentication is not approval: writes wait for the shared approval gate.
   const toolMatch = pathname.match(/^\/api\/tool\/([a-z0-9_-]+)$/);
   if (toolMatch && req.method === 'POST') {
     const toolName = toolMatch[1];
+    const siteIdHeader = req.headers['x-site-id'];
+    const siteId = typeof siteIdHeader === 'string' ? siteIdHeader : undefined;
+
+    let body: unknown = {};
     try {
-      const body = await parseBody(req);
-      const result = await executeToolByName(toolName, body);
-      sendJson(res, result);
-    } catch (error) {
-      const msg = error instanceof MCPError ? error.message : String(error);
-      sendError(res, msg, error instanceof MCPError ? 400 : 500);
+      body = await parseBody(req);
+    } catch (err) {
+      sendError(res, err instanceof Error ? err.message : 'Invalid body', 400);
+      return true;
     }
+
+    const guarded = await guardedExecute(toolName, body, {
+      source: { kind: 'http', siteId },
+    });
+
+    if (guarded.status === 'blocked' || guarded.status === 'denied') {
+      sendError(res, guarded.error ?? 'Escritura bloqueada.', 403);
+      return true;
+    }
+    if (guarded.status === 'error') {
+      const msg = guarded.error ?? 'Tool execution failed';
+      // 400 for known MCP/validation errors; 500 for everything else.
+      const status = guarded.errorDetails?.code === ErrorCode.INVALID_PARAMS
+        || guarded.errorDetails?.code === ErrorCode.NOT_IMPLEMENTED ? 400 : 500;
+      sendError(res, msg, status);
+      return true;
+    }
+    sendJson(res, guarded.result);
+    return true;
+  }
+
+  // GET /api/audit?limit=N
+  if (pathname === '/api/audit' && req.method === 'GET') {
+    const limit = parseInt(getParams(req).get('limit') || '100', 10);
+    sendJson(res, { entries: await auditLog.readRecent(Math.min(Math.max(limit, 1), 1000)) });
+    return true;
+  }
+
+  // GET /api/mutations/status
+  if (pathname === '/api/mutations/status' && req.method === 'GET') {
+    sendJson(res, getMutationsStatus());
     return true;
   }
 

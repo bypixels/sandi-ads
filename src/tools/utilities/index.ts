@@ -15,7 +15,6 @@ import { brokenLinksTool } from './broken-links.js';
 import { whoisLookupTool } from './whois.js';
 import { headersAnalysisTool } from './headers.js';
 import { screenshotTool } from './screenshot.js';
-import { registerTool } from '../index.js';
 import type { ToolDefinition } from '../../types/tools.js';
 
 /** All utility tools */
@@ -27,8 +26,3 @@ export const utilityTools: ToolDefinition<any, any>[] = [
   headersAnalysisTool,
   screenshotTool,
 ];
-
-/** Register all utility tools */
-export function registerUtilityTools(): void {
-  utilityTools.forEach((tool) => registerTool(tool));
-}

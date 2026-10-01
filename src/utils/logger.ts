@@ -13,6 +13,11 @@ export interface LogMetadata {
 
 const { combine, timestamp, printf, colorize, errors } = winston.format;
 
+function serializeError(_key: string, value: unknown): unknown {
+  if (!(value instanceof Error)) return value;
+  return { ...value, name: value.name, message: value.message, stack: value.stack };
+}
+
 /** Custom log format */
 const logFormat = printf(({ level, message, timestamp, service, action, duration, ...metadata }) => {
   let log = `${timestamp} [${level}]`;
@@ -40,7 +45,7 @@ const logFormat = printf(({ level, message, timestamp, service, action, duration
     for (const key of extraKeys) {
       extra[key] = metadata[key];
     }
-    log += ` ${JSON.stringify(extra)}`;
+    log += ` ${JSON.stringify(extra, serializeError)}`;
   }
 
   return log;
@@ -53,7 +58,7 @@ const jsonFormat = printf(({ level, message, timestamp, ...metadata }) => {
     level,
     message,
     ...metadata,
-  });
+  }, serializeError);
 });
 
 /** Create logger instance */

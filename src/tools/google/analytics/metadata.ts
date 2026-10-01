@@ -3,29 +3,12 @@
  */
 
 import { z } from 'zod';
-import { google } from 'googleapis';
-import { getGoogleAuth } from '../api-wrapper.js';
+import { getAnalyticsAdminClient, getAnalyticsDataClient } from './clients.js';
 import { createServiceLogger } from '../../../utils/logger.js';
 import type { ToolDefinition } from '../../../types/tools.js';
 import { ToolCategory } from '../../../types/tools.js';
 
 const log = createServiceLogger('ga4-metadata');
-
-/**
- * Get authenticated Analytics Data API client
- */
-function getAnalyticsDataClient() {
-  const auth = getGoogleAuth('analytics');
-  return google.analyticsdata({ version: 'v1beta', auth });
-}
-
-/**
- * Get authenticated Analytics Admin API client
- */
-function getAnalyticsAdminClient() {
-  const auth = getGoogleAuth('analytics');
-  return google.analyticsadmin({ version: 'v1beta', auth });
-}
 
 // ============================================
 // Get Metadata

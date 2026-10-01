@@ -3,29 +3,12 @@
  */
 
 import { z } from 'zod';
-import { google } from 'googleapis';
-import { getGoogleAuth } from '../api-wrapper.js';
+import { getAnalyticsAdminAlphaClient, getAnalyticsDataClient } from './clients.js';
 import { createServiceLogger } from '../../../utils/logger.js';
 import type { ToolDefinition } from '../../../types/tools.js';
 import { ToolCategory } from '../../../types/tools.js';
 
 const log = createServiceLogger('ga4-audiences');
-
-/**
- * Get authenticated Analytics Admin API client
- */
-function getAnalyticsAdminClient() {
-  const auth = getGoogleAuth('analytics');
-  return google.analyticsadmin({ version: 'v1beta', auth });
-}
-
-/**
- * Get authenticated Analytics Data API client
- */
-function getAnalyticsDataClient() {
-  const auth = getGoogleAuth('analytics');
-  return google.analyticsdata({ version: 'v1beta', auth });
-}
 
 // ============================================
 // List Audiences
@@ -62,13 +45,13 @@ export const ga4ListAudiencesTool: ToolDefinition<ListAudiencesInput, ListAudien
   async handler(input: ListAudiencesInput): Promise<ListAudiencesOutput> {
     log.info('Listing GA4 audiences', { propertyId: input.propertyId });
 
-    const analyticsAdmin = await getAnalyticsAdminClient();
     const parent = input.propertyId.startsWith('properties/')
       ? input.propertyId
       : `properties/${input.propertyId}`;
 
-    // Note: audiences API requires analyticsadmin v1alpha version
-    const adminClient = analyticsAdmin as unknown as {
+    // Audiences only exist in v1alpha. Cast through unknown because the
+    // googleapis types for v1alpha may not surface every field we use.
+    const alphaClient = (getAnalyticsAdminAlphaClient() as unknown) as {
       properties: {
         audiences: {
           list: (params: { parent: string; pageSize?: number; pageToken?: string }) => Promise<{
@@ -78,7 +61,14 @@ export const ga4ListAudiencesTool: ToolDefinition<ListAudiencesInput, ListAudien
       };
     };
 
-    const response = await adminClient.properties.audiences.list({
+    if (!alphaClient.properties?.audiences?.list) {
+      throw new Error(
+        'GA4 audiences API not available — googleapis v1alpha may have moved. ' +
+        'Update the analyticsadmin client version or use the GA4 admin UI for audiences.',
+      );
+    }
+
+    const response = await alphaClient.properties.audiences.list({
       parent,
       pageSize: input.pageSize || 50,
       pageToken: input.pageToken,

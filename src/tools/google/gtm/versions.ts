@@ -3,22 +3,13 @@
  */
 
 import { z } from 'zod';
-import { google } from 'googleapis';
-import { getGoogleAuth } from '../api-wrapper.js';
+import { getGTMClient } from './clients.js';
 import { createServiceLogger } from '../../../utils/logger.js';
 import { MCPError } from '../../../types/errors.js';
 import type { ToolDefinition } from '../../../types/tools.js';
 import { ToolCategory } from '../../../types/tools.js';
 
 const log = createServiceLogger('gtm-versions');
-
-/**
- * Get authenticated GTM API client
- */
-function getGTMClient() {
-  const auth = getGoogleAuth('gtm');
-  return google.tagmanager({ version: 'v2', auth });
-}
 
 // ============================================
 // Types

@@ -42,3 +42,6 @@ coverage/
 tmp/
 temp/
 .mcp.json
+
+.website-ops-*.key
+.website-ops-credentials.enc.legacy.bak

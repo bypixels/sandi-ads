@@ -56,7 +56,6 @@ import {
 import {
   gscCoverageReportTool,
 } from './coverage.js';
-import { registerTool } from '../../index.js';
 import type { ToolDefinition } from '../../../types/tools.js';
 
 /** All Search Console tools */
@@ -80,7 +79,3 @@ export const gscTools: ToolDefinition<any, any>[] = [
   gscCoverageReportTool,
 ];
 
-/** Register all Search Console tools */
-export function registerGSCTools(): void {
-  gscTools.forEach((tool) => registerTool(tool));
-}

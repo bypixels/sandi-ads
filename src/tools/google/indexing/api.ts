@@ -3,21 +3,12 @@
  */
 
 import { z } from 'zod';
-import { google } from 'googleapis';
-import { getGoogleAuth } from '../api-wrapper.js';
+import { getIndexingClient } from './clients.js';
 import { createServiceLogger } from '../../../utils/logger.js';
 import type { ToolDefinition } from '../../../types/tools.js';
 import { ToolCategory } from '../../../types/tools.js';
 
 const log = createServiceLogger('indexing-api');
-
-/**
- * Get authenticated Indexing API client
- */
-function getIndexingClient() {
-  const auth = getGoogleAuth('indexing');
-  return google.indexing({ version: 'v3', auth });
-}
 
 // ============================================
 // Publish URL Notification

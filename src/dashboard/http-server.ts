@@ -9,6 +9,13 @@ import { createServiceLogger } from '../utils/logger.js';
 import { handleApiRoute } from './routes/api.js';
 import { handleSseRoute } from './routes/sse.js';
 import { handleSettingsRoute } from './routes/settings.js';
+import { handleSitesRoute } from './routes/sites.js';
+import { handleAgentRoute } from './routes/agent.js';
+import { handleSignalsRoute } from './routes/signals.js';
+import { handleDraftsRoute } from './routes/drafts.js';
+import { handleCommandCenterRoute } from './routes/command-center.js';
+import { handleOAuthRoute } from './routes/oauth.js';
+import { authenticateRequest, authorizeEndpoint } from './auth.js';
 import { getDashboardHtml } from './ui/assets.js';
 
 const log = createServiceLogger('dashboard-http');
@@ -52,8 +59,8 @@ export function createDashboardServer(): Server {
         res.setHeader('Vary', 'Origin');
       }
     }
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-API-Key');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-API-Key, X-Site-ID');
 
     // Handle preflight
     if (req.method === 'OPTIONS') {
@@ -65,6 +72,15 @@ export function createDashboardServer(): Server {
     log.debug(`${req.method} ${pathname}`);
 
     try {
+      // Public callback still verifies a browser-bound, one-use OAuth state.
+      if (pathname.startsWith('/api/') && pathname !== '/api/oauth/google/callback') {
+        const auth = authenticateRequest(req);
+        if (!auth.authenticated || !authorizeEndpoint(auth, req.method || 'GET', pathname)) {
+          res.writeHead(auth.authenticated ? 403 : 401, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: auth.reason || 'Permisos insuficientes.' }));
+          return;
+        }
+      }
       // SSE route (before other API routes since it's long-lived)
       if (pathname === '/api/sse') {
         const handled = handleSseRoute(req, res, pathname);
@@ -74,6 +90,42 @@ export function createDashboardServer(): Server {
       // Settings routes
       if (pathname.startsWith('/api/settings/')) {
         const handled = await handleSettingsRoute(req, res, pathname);
+        if (handled) return;
+      }
+
+      // Sites routes
+      if (pathname === '/api/sites' || pathname.startsWith('/api/sites/')) {
+        const handled = await handleSitesRoute(req, res, pathname);
+        if (handled) return;
+      }
+
+      // Agent routes (chat, conversations, status)
+      if (pathname.startsWith('/api/agent/')) {
+        const handled = await handleAgentRoute(req, res, pathname);
+        if (handled) return;
+      }
+
+      // Signals routes (alerts list, autopilot, manual scan)
+      if (pathname === '/api/signals' || pathname.startsWith('/api/signals/')) {
+        const handled = await handleSignalsRoute(req, res, pathname);
+        if (handled) return;
+      }
+
+      // Drafts routes (agent inbox: list / edit / approve / publish)
+      if (pathname === '/api/drafts' || pathname.startsWith('/api/drafts/')) {
+        const handled = await handleDraftsRoute(req, res, pathname);
+        if (handled) return;
+      }
+
+      // Command Center routes (/api/cc/*) — site payload, profile, agents, refresh
+      if (pathname.startsWith('/api/cc/')) {
+        const handled = await handleCommandCenterRoute(req, res, pathname);
+        if (handled) return;
+      }
+
+      // OAuth + Google account linking + bulk site import
+      if (pathname.startsWith('/api/oauth/') || pathname === '/api/sites/bulk-import') {
+        const handled = await handleOAuthRoute(req, res, pathname);
         if (handled) return;
       }
 

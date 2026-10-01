@@ -56,7 +56,6 @@ import {
   ga4ListAudiencesTool,
   ga4RunFunnelReportTool,
 } from './audiences.js';
-import { registerTool } from '../../index.js';
 import type { ToolDefinition } from '../../../types/tools.js';
 
 /** All GA4 tools */
@@ -82,7 +81,3 @@ export const ga4Tools: ToolDefinition<any, any>[] = [
   ga4RunFunnelReportTool,
 ];
 
-/** Register all GA4 tools */
-export function registerGA4Tools(): void {
-  ga4Tools.forEach((tool) => registerTool(tool));
-}

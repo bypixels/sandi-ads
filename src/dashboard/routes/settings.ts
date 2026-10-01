@@ -11,42 +11,9 @@ import {
 } from '../services/credential-store.js';
 import { authManager } from '../../auth/index.js';
 import { createServiceLogger } from '../../utils/logger.js';
+import { sendJson, parseBody } from './route-helpers.js';
 
 const log = createServiceLogger('settings-api');
-
-/** Send JSON response */
-function sendJson(res: ServerResponse, data: unknown, status = 200): void {
-  res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' });
-  res.end(JSON.stringify(data));
-}
-
-const MAX_BODY_SIZE = 1024 * 50; // 50 KB
-
-/** Parse JSON body */
-async function parseBody(req: IncomingMessage): Promise<unknown> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    let size = 0;
-    req.on('data', (chunk: Buffer) => {
-      size += chunk.length;
-      if (size > MAX_BODY_SIZE) {
-        req.destroy();
-        reject(new Error('Request body too large'));
-        return;
-      }
-      chunks.push(chunk);
-    });
-    req.on('end', () => {
-      try {
-        const body = Buffer.concat(chunks).toString('utf-8');
-        resolve(body ? JSON.parse(body) : {});
-      } catch {
-        reject(new Error('Invalid JSON body'));
-      }
-    });
-    req.on('error', reject);
-  });
-}
 
 /**
  * Handle settings routes. Returns true if matched.

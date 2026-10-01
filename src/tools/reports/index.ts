@@ -13,7 +13,6 @@ import { reportSiteHealthTool } from './site-health.js';
 import { reportSeoAuditTool } from './seo-audit.js';
 import { reportExecutiveSummaryTool } from './executive-summary.js';
 import { dashboardOverviewTool } from './dashboard-overview.js';
-import { registerTool } from '../index.js';
 import type { ToolDefinition } from '../../types/tools.js';
 
 /** All Reports tools */
@@ -24,8 +23,3 @@ export const reportsTools: ToolDefinition<any, any>[] = [
   reportExecutiveSummaryTool,
   dashboardOverviewTool,
 ];
-
-/** Register all Reports tools */
-export function registerReportsTools(): void {
-  reportsTools.forEach((tool) => registerTool(tool));
-}

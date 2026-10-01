@@ -3,7 +3,7 @@
  */
 
 import { z } from 'zod';
-import { getGoogleAuth } from '../api-wrapper.js';
+import { assertBusinessProfileAuth } from './clients.js';
 import { createServiceLogger } from '../../../utils/logger.js';
 import type { ToolDefinition } from '../../../types/tools.js';
 import { ToolCategory } from '../../../types/tools.js';
@@ -54,7 +54,7 @@ export const gbpListPostsTool: ToolDefinition<ListPostsInput, ListPostsOutput> =
   async handler(input: ListPostsInput): Promise<ListPostsOutput> {
     log.info('Listing GBP posts', { parent: input.parent });
 
-    getGoogleAuth('businessProfile'); // Validate auth is configured
+    assertBusinessProfileAuth();
 
     // Note: Posts API requires special access setup
     log.warn('GBP Posts API requires special access setup');
@@ -108,7 +108,7 @@ export const gbpCreatePostTool: ToolDefinition<CreatePostInput, GBPPost> = {
   async handler(input: CreatePostInput): Promise<GBPPost> {
     log.info('Creating GBP post', { parent: input.parent, type: input.post.topicType });
 
-    getGoogleAuth('businessProfile'); // Validate auth is configured
+    assertBusinessProfileAuth();
 
     // Note: Posts API requires special access setup
     log.warn('GBP Posts API requires special access setup');

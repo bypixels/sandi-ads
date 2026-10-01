@@ -84,7 +84,6 @@ import {
   gtmPublishVersionTool,
   gtmGetLiveVersionTool,
 } from './versions.js';
-import { registerTool } from '../../index.js';
 import type { ToolDefinition } from '../../../types/tools.js';
 
 /** All GTM tools */
@@ -122,7 +121,3 @@ export const gtmTools: ToolDefinition<any, any>[] = [
   gtmGetLiveVersionTool,
 ];
 
-/** Register all GTM tools */
-export function registerGTMTools(): void {
-  gtmTools.forEach((tool) => registerTool(tool));
-}

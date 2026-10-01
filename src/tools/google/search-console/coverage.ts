@@ -3,21 +3,12 @@
  */
 
 import { z } from 'zod';
-import { google } from 'googleapis';
-import { getGoogleAuth } from '../api-wrapper.js';
+import { getSearchConsoleClient } from './clients.js';
 import { createServiceLogger } from '../../../utils/logger.js';
 import type { ToolDefinition } from '../../../types/tools.js';
 import { ToolCategory } from '../../../types/tools.js';
 
 const log = createServiceLogger('gsc-coverage');
-
-/**
- * Get authenticated Search Console API client
- */
-function getSearchConsoleClient() {
-  const auth = getGoogleAuth('searchConsole');
-  return google.searchconsole({ version: 'v1', auth });
-}
 
 // ============================================
 // Coverage Report

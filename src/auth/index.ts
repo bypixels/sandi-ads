@@ -2,18 +2,17 @@
  * Authentication module - unified interface for all auth methods
  */
 
-import { GoogleOAuth, createOAuthFromEnv } from './google-oauth.js';
+import { GoogleOAuth, createOAuthFromEnv, createOAuthFromRefreshToken } from './google-oauth.js';
 import { ServiceAccountAuth, createServiceAccountFromEnv } from './service-account.js';
 import { ApiKeyManager, apiKeyManager } from './api-keys.js';
-import { tokenManager, TokenManager } from './token-manager.js';
 import { GoogleService, requiresOAuth } from '../types/google.js';
 import { MCPError, ErrorCode } from '../types/errors.js';
 import { createServiceLogger } from '../utils/logger.js';
 
 const log = createServiceLogger('auth');
 
-export { GoogleOAuth, ServiceAccountAuth, ApiKeyManager, TokenManager };
-export { tokenManager, apiKeyManager };
+export { GoogleOAuth, ServiceAccountAuth, ApiKeyManager };
+export { apiKeyManager };
 export { createOAuthFromEnv, createServiceAccountFromEnv };
 
 export type AuthMethod = 'oauth' | 'service-account' | 'api-key' | 'none';
@@ -41,6 +40,7 @@ class AuthManager {
   private serviceAccount: ServiceAccountAuth | null = null;
   private preferredMethod: AuthMethod = 'none';
   private initialized = false;
+  private activeAccountEmail: string | null = null;
 
   /**
    * Initialize authentication from environment variables
@@ -65,12 +65,38 @@ class AuthManager {
       });
     }
 
-    // Try OAuth
+    // Try OAuth — prefer DB-linked account, fall back to env
     try {
-      this.oauth = await createOAuthFromEnv();
+      let dbAccountUsed: { id: string; email: string } | null = null;
+      try {
+        // Lazy import to avoid circular dep with dashboard/db
+        const { googleAccountsStore } = await import('../dashboard/services/google-accounts-store.js');
+        const acct = await googleAccountsStore.getDefaultActive();
+        if (acct) {
+          this.oauth = await createOAuthFromRefreshToken(acct.refreshToken);
+          if (this.oauth) {
+            dbAccountUsed = { id: acct.id, email: acct.email };
+            await googleAccountsStore.markUsed(acct.id);
+          }
+        }
+      } catch (err) {
+        log.debug('DB-linked account not available, will try env fallback', {
+          error: err instanceof Error ? err : new Error(String(err)),
+        });
+      }
+
+      if (!this.oauth) {
+        this.oauth = await createOAuthFromEnv();
+      }
+
       if (this.oauth && !this.serviceAccount?.isConfigured()) {
         this.preferredMethod = 'oauth';
-        log.info('Using OAuth authentication');
+        if (dbAccountUsed) {
+          this.activeAccountEmail = dbAccountUsed.email;
+          log.info('Using OAuth authentication (DB account)', { email: dbAccountUsed.email });
+        } else {
+          log.info('Using OAuth authentication (env fallback)');
+        }
       }
     } catch (error) {
       log.error('Failed to initialize OAuth', {
@@ -110,8 +136,8 @@ class AuthManager {
     }
 
     // Try OAuth
-    if (tokenManager.isAuthenticated()) {
-      return tokenManager.getAccessToken(service);
+    if (this.oauth?.isAuthenticated()) {
+      return this.oauth.getAccessToken(service);
     }
 
     throw new MCPError({
@@ -144,12 +170,10 @@ class AuthManager {
     } else if (this.preferredMethod === 'oauth' && this.oauth) {
       status.isAuthenticated = this.oauth.isAuthenticated();
       const tokenInfo = this.oauth.getTokenInfo();
-      if (tokenInfo) {
-        status.details = {
-          scopes: tokenInfo.scopes,
-          expiresAt: tokenInfo.expiresAt.toISOString(),
-        };
-      }
+      status.details = {
+        ...(this.activeAccountEmail ? { email: this.activeAccountEmail } : {}),
+        ...(tokenInfo ? { scopes: tokenInfo.scopes, expiresAt: tokenInfo.expiresAt.toISOString() } : {}),
+      };
     }
 
     return status;
@@ -179,7 +203,7 @@ class AuthManager {
     }
 
     return (
-      this.serviceAccount?.isAuthenticated() || tokenManager.isAuthenticated()
+      this.serviceAccount?.isAuthenticated() || this.oauth?.isAuthenticated() || false
     );
   }
 
@@ -200,6 +224,7 @@ class AuthManager {
     this.oauth = null;
     this.serviceAccount = null;
     this.preferredMethod = 'none';
+    this.activeAccountEmail = null;
     this.initialized = false;
 
     // Re-initialize the apiKeyManager from current env

@@ -11,7 +11,6 @@ export { a11yCheckImagesTool } from './images.js';
 import { a11yAuditTool } from './audit.js';
 import { a11yCheckContrastTool } from './contrast.js';
 import { a11yCheckImagesTool } from './images.js';
-import { registerTool } from '../index.js';
 import type { ToolDefinition } from '../../types/tools.js';
 
 /** All Accessibility tools */
@@ -21,8 +20,3 @@ export const accessibilityTools: ToolDefinition<any, any>[] = [
   a11yCheckContrastTool,
   a11yCheckImagesTool,
 ];
-
-/** Register all Accessibility tools */
-export function registerAccessibilityTools(): void {
-  accessibilityTools.forEach((tool) => registerTool(tool));
-}

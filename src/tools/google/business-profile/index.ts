@@ -54,7 +54,6 @@ import {
   gbpUploadMediaTool,
   gbpPerformanceReportTool,
 } from './insights.js';
-import { registerTool } from '../../index.js';
 import type { ToolDefinition } from '../../../types/tools.js';
 
 /** All Google Business Profile tools */
@@ -79,7 +78,3 @@ export const gbpTools: ToolDefinition<any, any>[] = [
   gbpPerformanceReportTool,
 ];
 
-/** Register all GBP tools */
-export function registerGBPTools(): void {
-  gbpTools.forEach((tool) => registerTool(tool));
-}

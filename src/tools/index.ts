@@ -65,30 +65,54 @@ export function hasTool(name: string): boolean {
   return toolRegistry.has(name);
 }
 
-// Import tool registration functions
-import { registerMonitoringTools, monitoringTools } from './monitoring/index.js';
-import { registerSecurityTools, securityTools } from './security/index.js';
-import { registerSeoTechnicalTools, seoTechnicalTools } from './seo-technical/index.js';
-import { registerUtilityTools, utilityTools } from './utilities/index.js';
-import { registerGoogleTools, googleTools } from './google/index.js';
-import { registerPerformanceTools, performanceTools } from './performance/index.js';
-import { registerReportsTools, reportsTools } from './reports/index.js';
-import { registerAccessibilityTools, accessibilityTools } from './accessibility/index.js';
-import { registerCloudflareTools, cloudflareTools } from './integrations/cloudflare/index.js';
+// Module tool arrays — each module owns its list; this file owns the
+// composition. No per-module `register*Tools()` wrapper exists: the
+// indirection added zero behaviour and cost an edit-per-module to maintain.
+import { monitoringTools } from './monitoring/index.js';
+import { securityTools } from './security/index.js';
+import { seoTechnicalTools } from './seo-technical/index.js';
+import { utilityTools } from './utilities/index.js';
+import { googleTools } from './google/index.js';
+import { performanceTools } from './performance/index.js';
+import { reportsTools } from './reports/index.js';
+import { accessibilityTools } from './accessibility/index.js';
+import { cloudflareTools } from './integrations/cloudflare/index.js';
+import { contentTools } from './content/index.js';
+import { geoTools } from './geo/index.js';
+import { fixTools } from './fix/index.js';
+import { socialTools } from './social/index.js';
+import { redditTools } from './reddit/index.js';
+import { codingTools } from './coding/index.js';
+import { videoTools } from './video/index.js';
+import { metaTools } from './meta/index.js';
 
 /**
- * Register all available tools
+ * Register every known tool into the global registry. Idempotent —
+ * registering twice with the same name overwrites the prior entry, which
+ * is benign because the entries are identical (they come from the same
+ * module-level constants).
  */
 export function registerAllTools(): void {
-  registerMonitoringTools();
-  registerSecurityTools();
-  registerSeoTechnicalTools();
-  registerUtilityTools();
-  registerGoogleTools();
-  registerPerformanceTools();
-  registerReportsTools();
-  registerAccessibilityTools();
-  registerCloudflareTools();
+  const all = [
+    ...monitoringTools,
+    ...securityTools,
+    ...seoTechnicalTools,
+    ...utilityTools,
+    ...googleTools,
+    ...performanceTools,
+    ...reportsTools,
+    ...accessibilityTools,
+    ...cloudflareTools,
+    ...contentTools,
+    ...geoTools,
+    ...fixTools,
+    ...socialTools,
+    ...redditTools,
+    ...codingTools,
+    ...videoTools,
+    ...metaTools,
+  ];
+  for (const tool of all) registerTool(tool);
 }
 
 // Export tool arrays for direct access
@@ -102,6 +126,14 @@ export {
   reportsTools,
   accessibilityTools,
   cloudflareTools,
+  contentTools,
+  geoTools,
+  fixTools,
+  socialTools,
+  redditTools,
+  codingTools,
+  videoTools,
+  metaTools,
 };
 
 // Re-export tool modules
@@ -114,3 +146,11 @@ export * from './performance/index.js';
 export * from './reports/index.js';
 export * from './accessibility/index.js';
 export * from './integrations/cloudflare/index.js';
+export * from './content/index.js';
+export * from './geo/index.js';
+export * from './fix/index.js';
+export * from './social/index.js';
+export * from './reddit/index.js';
+export * from './coding/index.js';
+export * from './video/index.js';
+export * from './meta/index.js';

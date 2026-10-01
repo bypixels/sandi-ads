@@ -10,6 +10,7 @@ import { createServiceLogger } from '../../../utils/logger.js';
 import type { ToolDefinition } from '../../../types/tools.js';
 import { ToolCategory } from '../../../types/tools.js';
 import { enums, resources, ResourceNames } from 'google-ads-api';
+import { assertDailyBudget, microsSchema } from './safety.js';
 
 const log = createServiceLogger('ads-management');
 
@@ -26,8 +27,8 @@ const createCampaignSchema = z.object({
     status: z.enum(['ENABLED', 'PAUSED']).optional().describe('Campaign status'),
     startDate: z.string().optional().describe('Start date (YYYY-MM-DD)'),
     endDate: z.string().optional().describe('End date (YYYY-MM-DD)'),
-    budgetAmountMicros: z.number().describe('Daily budget in micros (1000000 = $1)'),
-    budgetDeliveryMethod: z.enum(['STANDARD', 'ACCELERATED']).optional().describe('Budget delivery'),
+    budgetAmountMicros: microsSchema.describe('Daily budget in micros (1000000 = $1)'),
+    budgetDeliveryMethod: z.enum(['STANDARD']).optional().describe('Budget delivery'),
     biddingStrategyType: z.enum(['MANUAL_CPC', 'MAXIMIZE_CONVERSIONS', 'MAXIMIZE_CLICKS', 'TARGET_CPA', 'TARGET_ROAS'])
       .optional().describe('Bidding strategy'),
     targetCpaMicros: z.number().optional().describe('Target CPA in micros (for TARGET_CPA)'),
@@ -50,6 +51,8 @@ export const adsCreateCampaignTool: ToolDefinition<CreateCampaignInput, CreateCa
   inputSchema: createCampaignSchema,
 
   async handler(input: CreateCampaignInput): Promise<CreateCampaignOutput> {
+    assertDailyBudget(input.campaign.budgetAmountMicros);
+    createCampaignSchema.parse(input);
     log.info('Creating Ads campaign', { customerId: input.customerId, name: input.campaign.name });
 
     const client = getAdsClient();
@@ -66,9 +69,7 @@ export const adsCreateCampaignTool: ToolDefinition<CreateCampaignInput, CreateCa
     const budgetCreate: Partial<resources.CampaignBudget> = {
       name: `Budget for ${input.campaign.name}`,
       amount_micros: input.campaign.budgetAmountMicros as unknown as number,
-      delivery_method: input.campaign.budgetDeliveryMethod === 'ACCELERATED'
-        ? enums.BudgetDeliveryMethod.ACCELERATED
-        : enums.BudgetDeliveryMethod.STANDARD,
+      delivery_method: enums.BudgetDeliveryMethod.STANDARD,
       explicitly_shared: false,
     };
 
@@ -79,9 +80,7 @@ export const adsCreateCampaignTool: ToolDefinition<CreateCampaignInput, CreateCa
     const campaignCreate: Partial<resources.Campaign> = {
       name: input.campaign.name,
       advertising_channel_type: enums.AdvertisingChannelType[input.campaign.advertisingChannelType as keyof typeof enums.AdvertisingChannelType],
-      status: input.campaign.status === 'PAUSED'
-        ? enums.CampaignStatus.PAUSED
-        : enums.CampaignStatus.ENABLED,
+      status: enums.CampaignStatus.PAUSED,
       campaign_budget: budgetResourceName,
     };
 
@@ -152,7 +151,7 @@ const updateCampaignSchema = z.object({
     name: z.string().optional().describe('New campaign name'),
     status: z.enum(['ENABLED', 'PAUSED']).optional().describe('New status'),
     endDate: z.string().optional().describe('New end date (YYYY-MM-DD)'),
-    budgetAmountMicros: z.number().optional().describe('New daily budget in micros'),
+    budgetAmountMicros: microsSchema.optional().describe('New daily budget in micros'),
   }),
 });
 
@@ -171,6 +170,12 @@ export const adsUpdateCampaignTool: ToolDefinition<UpdateCampaignInput, UpdateCa
   inputSchema: updateCampaignSchema,
 
   async handler(input: UpdateCampaignInput): Promise<UpdateCampaignOutput> {
+    updateCampaignSchema.parse(input);
+    if (input.updates.status === 'ENABLED' && input.updates.budgetAmountMicros !== undefined) {
+      throw new Error('Enable and budget changes require separate approved operations');
+    }
+    if (input.updates.budgetAmountMicros !== undefined) assertDailyBudget(input.updates.budgetAmountMicros);
+    if (!/^\d+$/.test(input.campaignId)) throw new Error('Campaign ID must contain only digits');
     log.info('Updating Ads campaign', { customerId: input.customerId, campaignId: input.campaignId });
 
     const client = getAdsClient();
@@ -182,6 +187,23 @@ export const adsUpdateCampaignTool: ToolDefinition<UpdateCampaignInput, UpdateCa
       refresh_token: refreshToken,
       login_customer_id: getLoginCustomerId(),
     });
+
+    // Resolve and validate the existing budget before any campaign mutation.
+    let budgetResourceName: string | undefined;
+    if (input.updates.budgetAmountMicros !== undefined || input.updates.status === 'ENABLED') {
+      const rows = await customer.query(`
+        SELECT campaign.campaign_budget, campaign_budget.amount_micros,
+          campaign_budget.explicitly_shared, campaign_budget.reference_count
+        FROM campaign WHERE campaign.id = ${input.campaignId} LIMIT 1
+      `);
+      const row = rows[0];
+      const budget = row?.campaign_budget;
+      budgetResourceName = row?.campaign?.campaign_budget as string | undefined;
+      if (!budgetResourceName || !budget || budget.explicitly_shared !== false || Number(budget.reference_count) !== 1) {
+        throw new Error('Cannot modify or enable a campaign with missing or shared budget metadata');
+      }
+      if (input.updates.status === 'ENABLED') assertDailyBudget(Number(budget.amount_micros));
+    }
 
     const campaignResourceName = ResourceNames.campaign(customerId, input.campaignId);
     const updatedFields: string[] = [];
@@ -212,26 +234,13 @@ export const adsUpdateCampaignTool: ToolDefinition<UpdateCampaignInput, UpdateCa
       });
     }
 
-    // Update budget if specified
-    if (input.updates.budgetAmountMicros) {
-      // Get current campaign budget
-      const result = await customer.query(`
-        SELECT campaign.campaign_budget
-        FROM campaign
-        WHERE campaign.id = ${input.campaignId}
-        LIMIT 1
-      `);
-
-      if (result[0]?.campaign?.campaign_budget) {
-        const budgetUpdate: Partial<resources.CampaignBudget> & { resource_name: string } = {
-          resource_name: result[0].campaign.campaign_budget as string,
-          amount_micros: input.updates.budgetAmountMicros as unknown as number,
-        };
-        await customer.campaignBudgets.update([budgetUpdate], {
-          partial_failure: true,
-        });
-        updatedFields.push('budget_amount_micros');
-      }
+    // Budget metadata has already been checked before any writes.
+    if (input.updates.budgetAmountMicros !== undefined && budgetResourceName) {
+      await customer.campaignBudgets.update([{
+        resource_name: budgetResourceName,
+        amount_micros: input.updates.budgetAmountMicros,
+      }], { partial_failure: false });
+      updatedFields.push('budget_amount_micros');
     }
 
     log.info('Updated Ads campaign', { campaignId: input.campaignId, fields: updatedFields });
@@ -536,8 +545,8 @@ const createBudgetSchema = z.object({
   customerId: z.string().describe('Google Ads Customer ID'),
   budget: z.object({
     name: z.string().describe('Budget name'),
-    amountMicros: z.number().describe('Daily amount in micros (1000000 = $1)'),
-    deliveryMethod: z.enum(['STANDARD', 'ACCELERATED']).optional().describe('Delivery method'),
+    amountMicros: microsSchema.describe('Daily amount in micros (1000000 = $1)'),
+    deliveryMethod: z.enum(['STANDARD']).optional().describe('Delivery method'),
     explicitlyShared: z.boolean().optional().describe('Whether budget can be shared across campaigns'),
   }),
 });
@@ -556,6 +565,9 @@ export const adsCreateBudgetTool: ToolDefinition<CreateBudgetInput, CreateBudget
   inputSchema: createBudgetSchema,
 
   async handler(input: CreateBudgetInput): Promise<CreateBudgetOutput> {
+    createBudgetSchema.parse(input);
+    assertDailyBudget(input.budget.amountMicros);
+    if (input.budget.explicitlyShared) throw new Error('Shared budgets are not supported by the per-campaign safety policy');
     log.info('Creating Ads budget', { customerId: input.customerId, name: input.budget.name });
 
     const client = getAdsClient();
@@ -571,9 +583,7 @@ export const adsCreateBudgetTool: ToolDefinition<CreateBudgetInput, CreateBudget
     const budgetCreateObj: Partial<resources.CampaignBudget> = {
       name: input.budget.name,
       amount_micros: input.budget.amountMicros as unknown as number,
-      delivery_method: input.budget.deliveryMethod === 'ACCELERATED'
-        ? enums.BudgetDeliveryMethod.ACCELERATED
-        : enums.BudgetDeliveryMethod.STANDARD,
+      delivery_method: enums.BudgetDeliveryMethod.STANDARD,
       explicitly_shared: input.budget.explicitlyShared ?? false,
     };
 

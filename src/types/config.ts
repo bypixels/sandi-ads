@@ -135,7 +135,7 @@ export const RATE_LIMITS = {
   analytics: { requests: 100, window: 60000 }, // 100 per minute
   searchConsole: { requests: 1200, window: 86400000 }, // 1200 per day
   ads: { requests: 15000, window: 86400000 }, // 15000 per day
-  businessProfile: { requests: 60, window: 60000 }, // 60 per minute
+  businessProfile: { requests: 10, window: 60000 }, // 10 per minute — Google's default GBP quota is very low (often 1 QPM for new projects)
   pagespeed: { requests: 400, window: 86400000 }, // 400 per day
   safeBrowsing: { requests: 10000, window: 86400000 }, // 10000 per day
   indexing: { requests: 200, window: 86400000 }, // 200 per day
@@ -143,6 +143,7 @@ export const RATE_LIMITS = {
   // External services
   cloudflare: { requests: 1200, window: 300000 }, // 1200 per 5 minutes
   sslLabs: { requests: 25, window: 86400000 }, // 25 per day (be respectful)
+  meta: { requests: 120, window: 60000 }, // 120 per minute (Graph API enforces its own per-app budget; this keeps us well under)
 } as const;
 
 export type ServiceName = keyof typeof RATE_LIMITS;

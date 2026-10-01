@@ -13,7 +13,6 @@ import { sslAnalyzeTool } from './ssl.js';
 import { headersCheckTool } from './headers.js';
 import { securityAuditTool } from './audit.js';
 import { safeBrowsingTool } from './safe-browsing.js';
-import { registerTool } from '../index.js';
 import type { ToolDefinition } from '../../types/tools.js';
 
 /** All security tools */
@@ -24,8 +23,3 @@ export const securityTools: ToolDefinition<any, any>[] = [
   securityAuditTool,
   safeBrowsingTool,
 ];
-
-/** Register all security tools */
-export function registerSecurityTools(): void {
-  securityTools.forEach((tool) => registerTool(tool));
-}

@@ -15,7 +15,6 @@ import {
   indexingGetStatusTool,
   indexingBatchPublishTool,
 } from './api.js';
-import { registerTool } from '../../index.js';
 import type { ToolDefinition } from '../../../types/tools.js';
 
 /** All Indexing API tools */
@@ -26,7 +25,3 @@ export const indexingTools: ToolDefinition<any, any>[] = [
   indexingBatchPublishTool,
 ];
 
-/** Register all Indexing API tools */
-export function registerIndexingTools(): void {
-  indexingTools.forEach((tool) => registerTool(tool));
-}

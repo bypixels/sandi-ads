@@ -4,7 +4,7 @@
 
 import { z } from 'zod';
 // google import removed - Reviews API requires special access and direct REST calls
-import { getGoogleAuth } from '../api-wrapper.js';
+import { assertBusinessProfileAuth } from './clients.js';
 import { createServiceLogger } from '../../../utils/logger.js';
 import type { ToolDefinition } from '../../../types/tools.js';
 import { ToolCategory } from '../../../types/tools.js';
@@ -62,8 +62,7 @@ export const gbpListReviewsTool: ToolDefinition<ListReviewsInput, ListReviewsOut
     // Note: The reviews API requires special access. This is a placeholder implementation
     // that shows the expected interface. In production, you'd need mybusiness.reviews scope.
 
-    // Validate auth is configured (will throw MCPError if not)
-    getGoogleAuth('businessProfile');
+    assertBusinessProfileAuth();
 
     // The My Business Reviews API is not directly available in googleapis
     // You would need to make direct REST calls

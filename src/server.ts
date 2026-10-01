@@ -17,9 +17,10 @@ import { createServiceLogger } from './utils/logger.js';
 import { rateLimiter } from './utils/rate-limiter.js';
 import { cacheStats } from './utils/cache.js';
 import { MCPError, ErrorCode } from './types/errors.js';
-import { registerAllTools, getAllTools, getTool, isToolProGated } from './tools/index.js';
+import { registerAllTools, getAllTools, isToolProGated } from './tools/index.js';
 import { zodToJsonSchema } from './utils/schema.js';
 import { isPro } from './licensing/index.js';
+import { guardedExecute } from './dashboard/services/guarded-execution.js';
 
 const log = createServiceLogger('server');
 
@@ -39,12 +40,9 @@ export async function createServer(): Promise<Server> {
 
   // Load stored credentials before auth initialization (Pro only)
   if (isPro()) {
-    try {
-      const { loadStoredCredentials } = await import('./dashboard/index.js');
-      loadStoredCredentials();
-    } catch {
-      // Dashboard module not available — no stored credentials
-    }
+    const { loadStoredCredentials } = await import('./dashboard/index.js');
+    // A decryption/configuration failure must stop both transports, not reset the store.
+    loadStoredCredentials();
   }
 
   // Initialize authentication
@@ -192,29 +190,19 @@ function registerToolHandlers(server: Server): void {
             };
           }
 
-          // Route to registered tool handlers
-          const tool = getTool(name);
-          if (!tool) {
-            throw new MCPError({
-              code: ErrorCode.NOT_IMPLEMENTED,
-              message: `Tool not found: ${name}`,
-              retryable: false,
-            });
+          const guarded = await guardedExecute(name, args ?? {}, {
+            source: { kind: 'mcp' },
+          });
+          if (guarded.status !== 'success') {
+            return {
+              content: [{
+                type: 'text' as const,
+                text: JSON.stringify(guarded.errorDetails ?? guarded, null, 2),
+              }],
+              isError: true,
+            };
           }
-
-          // Parse and validate input
-          const parsed = tool.inputSchema.safeParse(args || {});
-          if (!parsed.success) {
-            throw new MCPError({
-              code: ErrorCode.INVALID_PARAMS,
-              message: `Invalid parameters: ${parsed.error.message}`,
-              details: { errors: parsed.error.errors },
-              retryable: false,
-            });
-          }
-
-          // Execute tool handler
-          const result = await tool.handler(parsed.data);
+          const result = guarded.result;
 
           return {
             content: [

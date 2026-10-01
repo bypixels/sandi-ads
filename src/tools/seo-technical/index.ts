@@ -17,7 +17,6 @@ import { metaAnalyzeTool } from './meta.js';
 import { structuredDataTool } from './structured-data.js';
 import { redirectCheckTool, canonicalCheckTool } from './redirects.js';
 import { headingAnalysisTool } from './headings.js';
-import { registerTool } from '../index.js';
 import type { ToolDefinition } from '../../types/tools.js';
 
 /** All SEO technical tools */
@@ -32,8 +31,3 @@ export const seoTechnicalTools: ToolDefinition<any, any>[] = [
   canonicalCheckTool,
   headingAnalysisTool,
 ];
-
-/** Register all SEO technical tools */
-export function registerSeoTechnicalTools(): void {
-  seoTechnicalTools.forEach((tool) => registerTool(tool));
-}

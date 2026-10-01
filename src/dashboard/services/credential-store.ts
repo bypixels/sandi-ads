@@ -5,18 +5,13 @@
  * Credentials are shared between MCP (stdio) and Dashboard (HTTP).
  */
 
-import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from 'node:crypto';
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync, chmodSync, constants, renameSync, unlinkSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import { join, dirname } from 'node:path';
-import { hostname } from 'node:os';
 import { createServiceLogger } from '../../utils/logger.js';
+import { encryptString, decryptString, type CryptoEnvelope } from './crypto.js';
 
 const log = createServiceLogger('credential-store');
-
-const ALGORITHM = 'aes-256-gcm';
-const IV_LENGTH = 16;
-const KEY_LENGTH = 32;
-const SALT = 'website-ops-mcp-credential-store';
 
 /** Credential groups and their env var mappings */
 export const CREDENTIAL_SCHEMA: Record<string, { envVar: string; label: string; secret: boolean }> = {
@@ -42,6 +37,14 @@ export const CREDENTIAL_SCHEMA: Record<string, { envVar: string; label: string; 
   cloudflare_api_token:           { envVar: 'CLOUDFLARE_API_TOKEN',           label: 'Cloudflare API Token',         secret: true },
   cloudflare_email:               { envVar: 'CLOUDFLARE_EMAIL',               label: 'Cloudflare Email',             secret: false },
   cloudflare_api_key:             { envVar: 'CLOUDFLARE_API_KEY',             label: 'Cloudflare API Key (legacy)',   secret: true },
+
+  // Meta (Facebook / Instagram Graph API, read-only)
+  meta_access_token:              { envVar: 'META_ACCESS_TOKEN',              label: 'Meta: token de usuario de sistema', secret: true },
+  meta_app_secret:                { envVar: 'META_APP_SECRET',                label: 'Meta: App Secret',             secret: true },
+  meta_app_id:                    { envVar: 'META_APP_ID',                    label: 'Meta: App ID',                 secret: false },
+
+  // Anthropic (agent)
+  anthropic_api_key:              { envVar: 'ANTHROPIC_API_KEY',              label: 'Anthropic API Key',            secret: true },
 };
 
 /** Service groups for UI display */
@@ -76,61 +79,33 @@ export const CREDENTIAL_GROUPS = [
     description: 'For Cloudflare DNS, analytics, and firewall tools',
     keys: ['cloudflare_api_token', 'cloudflare_email', 'cloudflare_api_key'],
   },
+  {
+    id: 'meta',
+    label: 'Meta (Facebook / Instagram)',
+    description: 'Token de usuario de sistema para leer anuncios, paginas e Instagram (solo lectura)',
+    keys: ['meta_access_token', 'meta_app_secret', 'meta_app_id'],
+  },
+  {
+    id: 'anthropic',
+    label: 'Anthropic (Asistente)',
+    description: 'API key personal para el chat con Claude embebido en el dashboard',
+    keys: ['anthropic_api_key'],
+  },
 ];
 
 export type StoredCredentials = Record<string, string>;
 
-interface EncryptedFile {
-  iv: string;   // hex
-  tag: string;  // hex
-  data: string; // hex
-}
+/** On-disk file layout = the crypto envelope as-is. */
+type EncryptedFile = CryptoEnvelope;
 
-/**
- * Derive encryption key from a passphrase
- */
-function deriveKey(passphrase: string): Buffer {
-  return scryptSync(passphrase, SALT, KEY_LENGTH);
-}
+// Re-export so existing consumers (google-accounts-store) keep working
+// during migration. New code should import directly from `./crypto.js`.
+export { encryptString, decryptString } from './crypto.js';
+export type { CryptoEnvelope } from './crypto.js';
 
-/**
- * Get the encryption passphrase.
- * Uses CREDENTIAL_ENCRYPTION_KEY env var, falls back to DASHBOARD_API_KEY,
- * or generates a machine-stable key from username + hostname.
- */
-function getPassphrase(): string {
-  return process.env.CREDENTIAL_ENCRYPTION_KEY
-    || process.env.DASHBOARD_API_KEY
-    || `website-ops-${process.env.USER || 'default'}-${hostname()}`;
-}
-
-function encrypt(plaintext: string): EncryptedFile {
-  const key = deriveKey(getPassphrase());
-  const iv = randomBytes(IV_LENGTH);
-  const cipher = createCipheriv(ALGORITHM, key, iv);
-
-  let encrypted = cipher.update(plaintext, 'utf8', 'hex');
-  encrypted += cipher.final('hex');
-  const tag = cipher.getAuthTag();
-
-  return {
-    iv: iv.toString('hex'),
-    tag: tag.toString('hex'),
-    data: encrypted,
-  };
-}
-
-function decrypt(file: EncryptedFile): string {
-  const key = deriveKey(getPassphrase());
-  const iv = Buffer.from(file.iv, 'hex');
-  const tag = Buffer.from(file.tag, 'hex');
-  const decipher = createDecipheriv(ALGORITHM, key, iv);
-  decipher.setAuthTag(tag);
-
-  let decrypted = decipher.update(file.data, 'hex', 'utf8');
-  decrypted += decipher.final('utf8');
-  return decrypted;
-}
+// Local aliases used by `encrypt`/`decrypt` wrappers below.
+const encrypt = encryptString;
+const decrypt = decryptString;
 
 /**
  * Credential Store — manages encrypted persistence of API keys
@@ -160,12 +135,19 @@ class CredentialStore {
       const encrypted: EncryptedFile = JSON.parse(raw);
       const decrypted = decrypt(encrypted);
       this.credentials = JSON.parse(decrypted);
+      if (encrypted.version !== 2) {
+        // Keep the old ciphertext backup; rewrite only after successful decrypt.
+        try { copyFileSync(this.filePath, this.filePath + '.legacy.bak', constants.COPYFILE_EXCL); }
+        catch (err) { if ((err as { code?: string }).code !== 'EEXIST') throw err; }
+        chmodSync(this.filePath + '.legacy.bak', 0o600);
+        this.save();
+      }
       log.info('Credentials loaded', { count: Object.keys(this.credentials).length });
     } catch (error) {
       log.error('Failed to load credentials — file may be corrupted or key changed', {
         error: error instanceof Error ? error : new Error(String(error)),
       });
-      this.credentials = {};
+      throw new Error('Las credenciales existentes no son legibles; se bloqueó el arranque para evitar sobrescribirlas.');
     }
 
     return this.credentials;
@@ -183,7 +165,13 @@ class CredentialStore {
 
       const plaintext = JSON.stringify(this.credentials);
       const encrypted = encrypt(plaintext);
-      writeFileSync(this.filePath, JSON.stringify(encrypted), 'utf-8');
+      const temp = this.filePath + '.' + randomBytes(12).toString('hex');
+      try {
+        writeFileSync(temp, JSON.stringify(encrypted), { encoding: 'utf-8', mode: 0o600, flag: 'wx' });
+        renameSync(temp, this.filePath);
+      } finally {
+        if (existsSync(temp)) unlinkSync(temp);
+      }
       log.info('Credentials saved', { count: Object.keys(this.credentials).length });
     } catch (error) {
       log.error('Failed to save credentials', {

@@ -70,7 +70,21 @@ export async function executeGoogleApi<T>(
       }
 
       if (statusCode === 429) {
-        throw MCPError.rateLimitError(service);
+        // Preserve Google's descriptive error and deduce retry timing from
+        // the message — GBP and friends often return "per minute" or
+        // "per day" quota limits we can map to a concrete wait time.
+        const lower = errorMessage.toLowerCase();
+        let retryAfter: number | undefined;
+        if (lower.includes('per minute')) retryAfter = 60;
+        else if (lower.includes('per hour')) retryAfter = 3600;
+        else if (lower.includes('per day')) retryAfter = 86400;
+        throw new MCPError({
+          code: ErrorCode.RATE_LIMIT_EXCEEDED,
+          message: `${service}: ${errorMessage}`,
+          retryable: true,
+          retryAfter,
+          service,
+        });
       }
 
       if (statusCode && statusCode >= 500) {

@@ -21,7 +21,8 @@ export type ToolCategory =
   | 'monitoring'
   | 'cloudflare'
   | 'utilities'
-  | 'reports';
+  | 'reports'
+  | 'meta';
 
 /** Tool category constants for convenience */
 export const ToolCategory = {
@@ -41,6 +42,7 @@ export const ToolCategory = {
   CLOUDFLARE: 'cloudflare' as const,
   UTILITIES: 'utilities' as const,
   REPORTS: 'reports' as const,
+  META: 'meta' as const,
 };
 
 /** Base tool definition */

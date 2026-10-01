@@ -3,22 +3,13 @@
  */
 
 import { z } from 'zod';
-import { google } from 'googleapis';
-import { getGoogleAuth } from '../api-wrapper.js';
+import { getGTMClient } from './clients.js';
 import { createServiceLogger } from '../../../utils/logger.js';
 import type { ToolDefinition } from '../../../types/tools.js';
 import { ToolCategory } from '../../../types/tools.js';
 import type { GTMTrigger, GTMCondition, GTMParameter } from '../../../types/google.js';
 
 const log = createServiceLogger('gtm-triggers');
-
-/**
- * Get authenticated GTM API client
- */
-function getGTMClient() {
-  const auth = getGoogleAuth('gtm');
-  return google.tagmanager({ version: 'v2', auth });
-}
 
 // Parameter schema for GTM
 const gtmParameterSchema: z.ZodType<GTMParameter> = z.lazy(() =>

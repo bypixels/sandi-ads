@@ -61,7 +61,6 @@ import {
   adsListBudgetsTool,
   adsCreateBudgetTool,
 } from './management.js';
-import { registerTool } from '../../index.js';
 import type { ToolDefinition } from '../../../types/tools.js';
 
 /** All Google Ads tools */
@@ -88,7 +87,3 @@ export const adsTools: ToolDefinition<any, any>[] = [
   adsCreateBudgetTool,
 ];
 
-/** Register all Google Ads tools */
-export function registerAdsTools(): void {
-  adsTools.forEach((tool) => registerTool(tool));
-}

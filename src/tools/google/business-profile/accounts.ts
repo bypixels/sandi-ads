@@ -3,29 +3,18 @@
  */
 
 import { z } from 'zod';
-import { google } from 'googleapis';
-import { getGoogleAuth } from '../api-wrapper.js';
+import { executeGoogleApi } from '../api-wrapper.js';
+import {
+  getAccountManagementClient,
+  getBusinessInformationClient,
+  getLocationsClient,
+  normalizeLocationName,
+} from './clients.js';
 import { createServiceLogger } from '../../../utils/logger.js';
 import type { ToolDefinition } from '../../../types/tools.js';
 import { ToolCategory } from '../../../types/tools.js';
 
 const log = createServiceLogger('gbp-accounts');
-
-/**
- * Get authenticated My Business Account Management API client
- */
-function getAccountManagementClient() {
-  const auth = getGoogleAuth('businessProfile');
-  return google.mybusinessaccountmanagement({ version: 'v1', auth });
-}
-
-/**
- * Get authenticated My Business Business Information API client
- */
-function getBusinessInformationClient() {
-  const auth = getGoogleAuth('businessProfile');
-  return google.mybusinessbusinessinformation({ version: 'v1', auth });
-}
 
 // ============================================
 // List Accounts
@@ -60,12 +49,14 @@ export const gbpListAccountsTool: ToolDefinition<ListAccountsInput, ListAccounts
   async handler(input: ListAccountsInput): Promise<ListAccountsOutput> {
     log.info('Listing GBP accounts');
 
-    const client = await getAccountManagementClient();
+    const client = getAccountManagementClient();
 
-    const response = await client.accounts.list({
-      pageSize: input.pageSize,
-      pageToken: input.pageToken,
-    });
+    const response = await executeGoogleApi('businessProfile', () =>
+      client.accounts.list({
+        pageSize: input.pageSize,
+        pageToken: input.pageToken,
+      }),
+    );
 
     const accounts: GBPAccount[] = (response.data.accounts || []).map((acc) => ({
       name: acc.name || '',
@@ -140,19 +131,21 @@ export const gbpListLocationsTool: ToolDefinition<ListLocationsInput, ListLocati
   async handler(input: ListLocationsInput): Promise<ListLocationsOutput> {
     log.info('Listing GBP locations', { accountId: input.accountId });
 
-    const client = await getBusinessInformationClient();
+    const client = getBusinessInformationClient();
 
     const parent = input.accountId.startsWith('accounts/')
       ? input.accountId
       : `accounts/${input.accountId}`;
 
-    const response = await client.accounts.locations.list({
-      parent,
-      pageSize: input.pageSize,
-      pageToken: input.pageToken,
-      filter: input.filter,
-      readMask: 'name,title,storeCode,websiteUri,phoneNumbers,categories,storefrontAddress,latlng',
-    });
+    const response = await executeGoogleApi('businessProfile', () =>
+      client.accounts.locations.list({
+        parent,
+        pageSize: input.pageSize,
+        pageToken: input.pageToken,
+        filter: input.filter,
+        readMask: 'name,title,storeCode,websiteUri,phoneNumbers,categories,storefrontAddress,latlng',
+      }),
+    );
 
     const locations: GBPLocation[] = (response.data.locations || []).map((loc) => ({
       name: loc.name || '',
@@ -209,17 +202,15 @@ export const gbpGetLocationTool: ToolDefinition<GetLocationInput, GBPLocation> =
   async handler(input: GetLocationInput): Promise<GBPLocation> {
     log.info('Getting GBP location', { name: input.name });
 
-    const client = await getBusinessInformationClient();
+    const locationsClient = getLocationsClient();
+    const locationName = normalizeLocationName(input.name);
 
-    // Note: The Business Information API requires special access
-    const locationsClient = client.accounts.locations as unknown as {
-      get: (params: { name: string; readMask: string }) => Promise<{ data: Record<string, unknown> }>;
-    };
-
-    const response = await locationsClient.get({
-      name: input.name,
-      readMask: 'name,title,storeCode,websiteUri,phoneNumbers,categories,storefrontAddress,latlng',
-    });
+    const response = await executeGoogleApi('businessProfile', () =>
+      locationsClient.get({
+        name: locationName,
+        readMask: 'name,title,storeCode,websiteUri,phoneNumbers,categories,storefrontAddress,latlng',
+      }),
+    );
 
     const loc = response.data as Record<string, unknown>;
     const phoneNumbers = loc.phoneNumbers as Record<string, unknown> | undefined;
@@ -286,18 +277,16 @@ export const gbpUpdateLocationTool: ToolDefinition<UpdateLocationInput, GBPLocat
   async handler(input: UpdateLocationInput): Promise<GBPLocation> {
     log.info('Updating GBP location', { name: input.name });
 
-    const client = await getBusinessInformationClient();
+    const locationsClient = getLocationsClient();
+    const locationName = normalizeLocationName(input.name);
 
-    // Note: The Business Information API requires special access
-    const locationsClient = client.accounts.locations as unknown as {
-      patch: (params: { name: string; updateMask: string; requestBody: unknown }) => Promise<{ data: Record<string, unknown> }>;
-    };
-
-    const response = await locationsClient.patch({
-      name: input.name,
-      updateMask: input.updateMask,
-      requestBody: input.location,
-    });
+    const response = await executeGoogleApi('businessProfile', () =>
+      locationsClient.patch({
+        name: locationName,
+        updateMask: input.updateMask,
+        requestBody: input.location,
+      }),
+    );
 
     const loc = response.data as Record<string, unknown>;
     const phoneNumbers = loc.phoneNumbers as Record<string, unknown> | undefined;

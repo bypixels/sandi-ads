@@ -3,8 +3,7 @@
  */
 
 import { z } from 'zod';
-import { google } from 'googleapis';
-import { getGoogleAuth } from '../api-wrapper.js';
+import { getAnalyticsDataClient } from './clients.js';
 import { createServiceLogger } from '../../../utils/logger.js';
 import type { ToolDefinition } from '../../../types/tools.js';
 import { ToolCategory } from '../../../types/tools.js';
@@ -12,14 +11,6 @@ import type { GA4DateRange, GA4FilterExpression, GA4OrderBy } from '../../../typ
 // Note: GA4Dimension and GA4Metric types are defined locally via zod schemas
 
 const log = createServiceLogger('ga4-reports');
-
-/**
- * Get authenticated Analytics Data API client
- */
-function getAnalyticsDataClient() {
-  const auth = getGoogleAuth('analytics');
-  return google.analyticsdata({ version: 'v1beta', auth });
-}
 
 // ============================================
 // Shared Schemas

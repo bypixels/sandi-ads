@@ -1,0 +1,49 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: website-ops-pg
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: website_ops
+      POSTGRES_PASSWORD: website_ops_dev
+      POSTGRES_DB: website_ops
+    ports:
+      - "127.0.0.1:5434:5432"
+    volumes:
+      - website_ops_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U website_ops -d website_ops"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: website-ops-dashboard
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      # DB_URL points at the postgres service via the compose network
+      DATABASE_URL: postgres://website_ops:website_ops_dev@postgres:5432/website_ops
+      DASHBOARD_ENABLED: "true"
+      DASHBOARD_PORT: "3737"
+      DASHBOARD_HOST: "0.0.0.0"
+      # Authentication required; access key bootstrapped in persistent /data.
+      DASHBOARD_AUTH_REQUIRED: "${DASHBOARD_AUTH_REQUIRED:-true}"
+      # Mutations off by default. Override in .env to enable.
+      MUTATIONS_ENABLED: "${MUTATIONS_ENABLED:-false}"
+    ports:
+      - "127.0.0.1:3737:3737"
+    volumes:
+      # Persists encrypted credentials, legacy import archives, and logs across restarts.
+      - website_ops_data:/data
+
+volumes:
+  website_ops_pg_data:
+  website_ops_data:

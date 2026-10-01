@@ -3,7 +3,7 @@
  */
 
 import { z } from 'zod';
-import { getGoogleAuth } from '../api-wrapper.js';
+import { assertBusinessProfileAuth } from './clients.js';
 import { createServiceLogger } from '../../../utils/logger.js';
 import type { ToolDefinition } from '../../../types/tools.js';
 import { ToolCategory } from '../../../types/tools.js';
@@ -56,7 +56,7 @@ export const gbpGetInsightsTool: ToolDefinition<GetInsightsInput, GBPInsightsOut
   async handler(input: GetInsightsInput): Promise<GBPInsightsOutput> {
     log.info('Getting GBP insights', { name: input.name });
 
-    getGoogleAuth('businessProfile'); // Validate auth is configured
+    assertBusinessProfileAuth();
 
     // Note: Insights API requires special Business Profile API access
     log.warn('GBP Insights API requires special access setup');
@@ -113,7 +113,7 @@ export const gbpListMediaTool: ToolDefinition<ListMediaInput, ListMediaOutput> =
   async handler(input: ListMediaInput): Promise<ListMediaOutput> {
     log.info('Listing GBP media', { parent: input.parent });
 
-    getGoogleAuth('businessProfile'); // Validate auth is configured
+    assertBusinessProfileAuth();
 
     // Note: Media API requires special access setup
     log.warn('GBP Media API requires special access setup');
@@ -153,7 +153,7 @@ export const gbpUploadMediaTool: ToolDefinition<UploadMediaInput, GBPMedia> = {
   async handler(input: UploadMediaInput): Promise<GBPMedia> {
     log.info('Uploading GBP media', { parent: input.parent, format: input.mediaItem.mediaFormat });
 
-    getGoogleAuth('businessProfile'); // Validate auth is configured
+    assertBusinessProfileAuth();
 
     // Note: Media upload requires special access setup
     log.warn('GBP Media API requires special access setup');
@@ -212,7 +212,7 @@ export const gbpPerformanceReportTool: ToolDefinition<PerformanceReportInput, GB
   async handler(input: PerformanceReportInput): Promise<GBPPerformanceReportOutput> {
     log.info('Generating GBP performance report', { location: input.locationName });
 
-    getGoogleAuth('businessProfile'); // Validate auth is configured
+    assertBusinessProfileAuth();
 
     // Note: This would aggregate data from multiple GBP API calls
     log.warn('GBP Performance Report requires full API access setup');
