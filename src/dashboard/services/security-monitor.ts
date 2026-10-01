@@ -18,6 +18,7 @@ import { sitesStore, type Site } from './sites-store.js';
 import { signalsRepo, type SignalSeverity } from './gsc-signals.js';
 import type { SignalKind } from './agent-catalog.js';
 import { executeToolByName } from './dashboard-data.js';
+import { recordFailure, recordSuccess } from './monitor-health.js';
 import { createServiceLogger } from '../../utils/logger.js';
 
 const log = createServiceLogger('security-monitor');
@@ -210,6 +211,10 @@ export async function runSecurityMonitorForSite(site: Site): Promise<SecurityMon
   result.errors = errors;
   result.ok = errors.length === 0;
   if (errors.length) result.error = errors.join('; ');
+  // A missing optional API key is configuration, not a provider failure.
+  const providerErrors = errors.filter((e) => !e.includes('skipped:'));
+  if (providerErrors.length) recordFailure('security', 'security-monitor', providerErrors.join('; '), { pausable: false });
+  else recordSuccess('security', 'security-monitor');
   // Only successful detectors can establish that their previous alert resolved.
   if (checkedTypes.length) {
     result.resolvedCount = await signalsRepo.resolveByTypes(site.id, checkedTypes, result.emittedTypes);

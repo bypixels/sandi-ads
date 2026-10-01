@@ -16,6 +16,7 @@ import { MCPError, ErrorCode } from '../../types/errors.js';
 import { getMutationsStatus } from '../services/mutations.js';
 import { auditLog } from '../services/audit-log.js';
 import { streamSuggestions, isSuggestConfigured, type SuggestEvent } from '../services/dashboard-suggest.js';
+import { getMonitorHealth } from '../services/monitor-health.js';
 import { guardedExecute } from '../services/guarded-execution.js';
 import { sendJson, sendError, parseBody, getParams } from './route-helpers.js';
 
@@ -42,6 +43,12 @@ export async function handleApiRoute(
       version: '0.1.0',
       timestamp: new Date().toISOString(),
     });
+    return true;
+  }
+
+  // GET /api/monitors/health — circuit-breaker state of the background monitors
+  if (pathname === '/api/monitors/health' && req.method === 'GET') {
+    sendJson(res, { monitors: getMonitorHealth() });
     return true;
   }
 

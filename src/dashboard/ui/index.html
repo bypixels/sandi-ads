@@ -1160,6 +1160,14 @@
   .import-prop .ip-sources .src { font-size: 9.5px; padding: 2px 7px; border-radius: 999px; background: var(--accent-bg); color: var(--accent); border: 1px solid var(--accent-border); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
 
   /* Alerts */
+  .monitor-health { margin-bottom: 16px; }
+  .monitor-health .mh-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 6px 0; font-size: 12.5px; border-bottom: 1px solid var(--border); }
+  .monitor-health .mh-name { font-weight: 600; color: var(--text); }
+  .monitor-health .mh-pill { padding: 2px 10px; border-radius: 999px; font-size: 11.5px; border: 1px solid var(--border); }
+  .monitor-health .mh-pill.ok { color: var(--good); border-color: var(--good); }
+  .monitor-health .mh-pill.degraded { color: var(--warn); border-color: var(--warn-border); }
+  .monitor-health .mh-pill.paused { color: var(--poor); border-color: var(--poor-border); }
+  .monitor-health .mh-err, .monitor-health .mh-empty { color: var(--text-muted); font-size: 12px; margin: 0; }
   .alerts-summary { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
   .alerts-summary .pill-stat { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); font-size: 12px; }
   .alerts-summary .pill-stat .num { font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
@@ -3510,6 +3518,10 @@
 
 <!-- Alertas -->
 <div class="page" id="page-alerts">
+  <section id="monitorHealthCard" class="monitor-health" aria-labelledby="monitorHealthTitle">
+    <h2 class="section-title" id="monitorHealthTitle">Salud de monitores</h2>
+    <div id="monitorHealthContent" aria-live="polite"><p class="mh-empty">Cargando...</p></div>
+  </section>
   <div id="alertsContent">
     <div class="empty"><p style="text-align:center;color:var(--text-muted);padding:60px 20px">Cargando...</p></div>
   </div>
@@ -4074,7 +4086,8 @@
 
   function attachRowClicks(container, rows, handler) {
     container.querySelectorAll('tr[data-row]').forEach(tr => {
-      tr.addEventListener('click', () => {
+      tr.addEventListener('click', (ev) => {
+        if (ev.target.closest && ev.target.closest('a.row-link')) return; // links keep their own navigation
         const i = parseInt(tr.dataset.row, 10);
         handler(rows[i], i);
       });
@@ -5070,7 +5083,7 @@
         { label: 'Categoría', fmt: r => esc(r.categories?.primaryCategory?.displayName || '—') },
         { label: 'Dirección', fmt: r => esc((r.address?.addressLines || []).join(', ') + (r.address?.locality ? ', ' + r.address.locality : '')) },
         { label: 'Teléfono', fmt: r => esc(r.phoneNumbers?.primaryPhone || '—') },
-        { label: 'Web', fmt: r => r.websiteUri ? '<a class="row-link" href="' + esc(r.websiteUri) + '" target="_blank" rel="noopener" onclick="event.stopPropagation()">' + esc(new URL(r.websiteUri).hostname) + '</a>' : '—' },
+        { label: 'Web', fmt: r => r.websiteUri ? '<a class="row-link" href="' + esc(r.websiteUri) + '" target="_blank" rel="noopener">' + esc(new URL(r.websiteUri).hostname) + '</a>' : '—' },
       ], rows);
       attachRowClicks(ctx.el, rows, (r) => {
         ctx.push(r.title || 'Ubicación', gbpLocationView, {
@@ -6150,7 +6163,32 @@
     } catch { /* noop */ }
   }
 
+  async function loadMonitorHealth() {
+    const box = document.getElementById('monitorHealthContent');
+    if (!box) return;
+    try {
+      const res = await fetch('/api/monitors/health', { headers: authHeaders() });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const data = await res.json();
+      const list = Array.isArray(data.monitors) ? data.monitors : [];
+      if (list.length === 0) { box.innerHTML = '<p class="mh-empty">Aún no hay ejecuciones registradas desde el último reinicio.</p>'; return; }
+      box.innerHTML = list.map(m => {
+        let label = 'OK';
+        if (m.status === 'paused') {
+          const until = m.pausedUntil ? new Date(m.pausedUntil).toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' }) : '';
+          label = 'En pausa hasta ' + until;
+        } else if (m.status === 'degraded') label = 'Con fallas';
+        return '<div class="mh-row"><span class="mh-name">' + esc(m.monitor) + ' / ' + esc(m.provider) + '</span>'
+          + '<span class="mh-pill ' + esc(m.status) + '">' + esc(label) + '</span>'
+          + (m.lastError ? '<span class="mh-err">' + esc(m.lastError) + '</span>' : '') + '</div>';
+      }).join('');
+    } catch (err) {
+      box.innerHTML = '<p class="mh-empty">No se pudo cargar la salud de los monitores: ' + esc(err && err.message) + '</p>';
+    }
+  }
+
   async function loadAlerts() {
+    loadMonitorHealth();
     const container = document.getElementById('alertsContent');
     showLoading(container, 'Cargando alertas...');
     try {

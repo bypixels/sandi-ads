@@ -6,10 +6,12 @@ vi.mock('../../src/dashboard/services/gsc-signals.js', () => ({ signalsRepo: { r
 vi.mock('../../src/dashboard/services/sites-store.js', () => ({ sitesStore: { list: mocks.list } }));
 vi.mock('../../src/dashboard/services/site-profile.js', () => ({ siteProfileRepo: { get: mocks.profile } }));
 import { runDiscussionMonitorForSite, startDiscussionMonitorScheduler, stopDiscussionMonitorScheduler } from '../../src/dashboard/services/discussion-monitor.js';
+import { _resetForTests } from '../../src/dashboard/services/monitor-health.js';
 import { runSecurityMonitorForSite, startSecurityMonitorScheduler, stopSecurityMonitorScheduler } from '../../src/dashboard/services/security-monitor.js';
 const site: Site = { id: 'site-a', name: 'Cliente A', primaryUrl: 'https://example.com', bindings: {}, createdAt: '', updatedAt: '' };
 beforeEach(() => {
   vi.clearAllMocks();
+  _resetForTests();
   mocks.resolve.mockResolvedValue(1);
   mocks.upsert.mockResolvedValue(undefined);
   mocks.profile.mockResolvedValue({ niche: 'marketing', competitors: [{ name: 'HubSpot' }] });

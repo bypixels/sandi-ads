@@ -19,6 +19,7 @@ import { sitesStore, type Site } from './sites-store.js';
 import { signalsRepo, type SignalSeverity } from './gsc-signals.js';
 import { type SignalKind } from './agent-catalog.js';
 import { executeToolByName } from './dashboard-data.js';
+import { recordFailure, recordSuccess } from './monitor-health.js';
 import { createServiceLogger } from '../../utils/logger.js';
 
 const log = createServiceLogger('gsc-monitor');
@@ -127,6 +128,7 @@ export async function runMonitorForSite(site: Site): Promise<MonitorRunResult> {
   }
 
   log.info('Running GSC monitor for site', { siteId: site.id, siteUrl });
+  const gscFailures: string[] = [];
 
   // Run detectors in parallel — they're independent
   const [coverageRes, sitemapsRes, currentRes, priorRes, queriesRes] = await Promise.allSettled([
@@ -183,6 +185,7 @@ export async function runMonitorForSite(site: Site): Promise<MonitorRunResult> {
     }
   } else {
     log.warn('coverage_report failed', { siteId: site.id, error: String(coverageRes.reason) });
+    gscFailures.push('coverage_report: ' + String(coverageRes.reason));
   }
 
   // ── sitemap detectors ───────────────────────────────────────────────
@@ -237,6 +240,7 @@ export async function runMonitorForSite(site: Site): Promise<MonitorRunResult> {
     }
   } else {
     log.warn('list_sitemaps failed', { siteId: site.id, error: String(sitemapsRes.reason) });
+    gscFailures.push('list_sitemaps: ' + String(sitemapsRes.reason));
   }
 
   // ── traffic-drop detector ──────────────────────────────────────────
@@ -327,10 +331,14 @@ export async function runMonitorForSite(site: Site): Promise<MonitorRunResult> {
     }
   } else {
     log.warn('gsc_top_queries failed', { siteId: site.id, error: String(queriesRes.reason) });
+    gscFailures.push('gsc_top_queries: ' + String(queriesRes.reason));
   }
 
   // Resolve only the kinds this monitor OWNS that didn't trigger this run.
   // Signals owned by snapshot-signals / security-monitor stay untouched.
+  if (gscFailures.length) recordFailure('gsc', 'gsc-monitor', gscFailures.join('; '), { pausable: false });
+  else recordSuccess('gsc', 'gsc-monitor');
+
   result.resolvedCount = await signalsRepo.resolveByTypes(site.id, GSC_MONITOR_OWNED, result.emittedTypes);
 
   log.info('GSC monitor done for site', {

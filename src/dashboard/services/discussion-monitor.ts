@@ -22,8 +22,10 @@ import { executeToolByName } from './dashboard-data.js';
 import type { RedditSearchOutput, RedditThread } from '../../tools/reddit/index.js';
 import type { HnSearchOutput, HnHit } from '../../tools/social/index.js';
 import { createServiceLogger } from '../../utils/logger.js';
+import { isPaused, recordFailure, recordSuccess } from './monitor-health.js';
 
 const log = createServiceLogger('discussion-monitor');
+const MONITOR = 'discussion';
 
 // Tunables
 const REDDIT_MIN_SCORE = parseInt(process.env.DISCUSSION_REDDIT_MIN_SCORE || '5', 10);
@@ -102,9 +104,15 @@ export async function runDiscussionMonitorForSite(site: Site): Promise<Discussio
   const redditCandidates: Array<{ q: string; thread: RedditThread }> = [];
   const hnCandidates: Array<{ q: string; hit: HnHit }> = [];
 
+  // A provider whose circuit is open is skipped entirely (unknown, not "no results").
+  const redditPaused = isPaused(MONITOR, 'reddit');
+  const hnPaused = isPaused(MONITOR, 'hn');
+  if (redditPaused) { redditComplete = false; errors.push('reddit: paused (circuit open)'); }
+  if (hnPaused) { hnComplete = false; errors.push('hn: paused (circuit open)'); }
+
   // Run all queries in parallel across both platforms
   const searches = queries.flatMap((q) => [
-    executeToolByName<RedditSearchOutput>('reddit_search_threads', {
+    redditPaused ? Promise.resolve() : executeToolByName<RedditSearchOutput>('reddit_search_threads', {
       query: q, sort: 'relevance', timeFilter: 'week', limit: 15,
     }).then((out) => {
       if (!Array.isArray(out.threads)) throw new Error('invalid Reddit search response');
@@ -113,13 +121,15 @@ export async function runDiscussionMonitorForSite(site: Site): Promise<Discussio
         if (t.score < REDDIT_MIN_SCORE && t.numComments < REDDIT_MIN_COMMENTS) continue;
         redditCandidates.push({ q, thread: t });
       }
+      recordSuccess(MONITOR, 'reddit');
     }).catch((err) => {
       redditComplete = false;
       errors.push('reddit: ' + String(err));
-      log.warn('Reddit search failed for query', { siteId: site.id, q, error: String(err) });
+      log.debug('Reddit search failed for query', { siteId: site.id, q, error: String(err) });
+      recordFailure(MONITOR, 'reddit', err);
     }),
 
-    executeToolByName<HnSearchOutput>('hn_search_discussions', {
+    hnPaused ? Promise.resolve() : executeToolByName<HnSearchOutput>('hn_search_discussions', {
       query: q, tags: 'story,comment', sortBy: 'date',
       createdAfter: Math.floor(Date.now() / 1000) - 7 * 24 * 3600, hitsPerPage: 15,
     }).then((out) => {
@@ -129,10 +139,12 @@ export async function runDiscussionMonitorForSite(site: Site): Promise<Discussio
         if (pts < HN_MIN_POINTS && (h.numComments ?? 0) < 3) continue;
         hnCandidates.push({ q, hit: h });
       }
+      recordSuccess(MONITOR, 'hn');
     }).catch((err) => {
       hnComplete = false;
       errors.push('hn: ' + String(err));
-      log.warn('HN search failed for query', { siteId: site.id, q, error: String(err) });
+      log.debug('HN search failed for query', { siteId: site.id, q, error: String(err) });
+      recordFailure(MONITOR, 'hn', err);
     }),
   ]);
   await Promise.allSettled(searches);

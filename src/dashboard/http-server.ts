@@ -4,6 +4,7 @@
  * Runs alongside the MCP stdio transport to serve the web dashboard and REST API.
  */
 
+import { randomBytes } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse, type Server } from 'node:http';
 import { createServiceLogger } from '../utils/logger.js';
 import { handleApiRoute } from './routes/api.js';
@@ -59,6 +60,7 @@ export function createDashboardServer(): Server {
         res.setHeader('Vary', 'Origin');
       }
     }
+    res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-API-Key, X-Site-ID');
 
@@ -137,11 +139,28 @@ export function createDashboardServer(): Server {
 
       // Dashboard HTML (no auth for the shell)
       if (pathname === '/' || pathname === '/index.html') {
+        // Fresh nonce per request: only the shell's single inline script may run.
+        const nonce = randomBytes(16).toString('base64');
         res.writeHead(200, {
           'Content-Type': 'text/html; charset=utf-8',
           'Cache-Control': 'no-cache',
+          'Content-Security-Policy': [
+            "default-src 'self'",
+            `script-src 'nonce-${nonce}'`,
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+            "font-src 'self' https://fonts.gstatic.com",
+            "img-src 'self' data: https:",
+            "connect-src 'self'",
+            "frame-ancestors 'none'",
+            "base-uri 'none'",
+            "form-action 'self'",
+            "object-src 'none'",
+          ].join('; '),
+          'X-Frame-Options': 'DENY',
+          'X-Content-Type-Options': 'nosniff',
+          'Referrer-Policy': 'no-referrer',
         });
-        res.end(getDashboardHtml());
+        res.end(getDashboardHtml().replace('<script>', `<script nonce="${nonce}">`));
         return;
       }
 
