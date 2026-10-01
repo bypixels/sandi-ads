@@ -8,9 +8,13 @@ dist
 *.log
 *.imported
 .website-ops-credentials.enc
+.sandi-ads-credentials.enc
 .website-ops-sites.json*
 .website-ops-audit.jsonl*
 .website-ops-chats*
+.sandi-ads-sites.json*
+.sandi-ads-audit.jsonl*
+.sandi-ads-chats*
 reporte-*.html
 website-ops-mcp-prompt.md
 README.md
@@ -22,3 +26,5 @@ tests
 
 .website-ops-*.key
 .website-ops-credentials.enc.legacy.bak
+.sandi-ads-*.key
+.sandi-ads-credentials.enc.legacy.bak

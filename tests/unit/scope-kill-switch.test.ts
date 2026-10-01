@@ -30,7 +30,7 @@ import * as approvals from '../../src/dashboard/services/approval-gate.js';
 const siteA = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const siteB = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 beforeEach(() => {
-  vi.stubEnv('WEBSITE_OPS_SITE_ID', siteA);
+  vi.stubEnv('SANDI_ADS_SITE_ID', siteA);
   vi.stubEnv('MUTATIONS_ENABLED', 'true');
   vi.stubEnv('MUTATIONS_ADS', '');
   vi.stubEnv('MUTATIONS_AUTOAPPLY', 'ads_create_campaign');

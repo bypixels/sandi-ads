@@ -10,6 +10,7 @@ import { randomBytes } from 'node:crypto';
 import { join, dirname } from 'node:path';
 import { createServiceLogger } from '../../utils/logger.js';
 import { encryptString, decryptString, type CryptoEnvelope } from './crypto.js';
+import { migrateLegacyFile } from './security-config.js';
 
 const log = createServiceLogger('credential-store');
 
@@ -117,13 +118,25 @@ class CredentialStore {
   constructor() {
     // Store in project root by default, configurable via env
     const storeDir = process.env.CREDENTIAL_STORE_PATH || process.cwd();
-    this.filePath = join(storeDir, '.website-ops-credentials.enc');
+    this.filePath = join(storeDir, '.sandi-ads-credentials.enc');
+  }
+
+  /**
+   * Link pre-rebrand files (credentials + legacy backup) under the new names before any read/write.
+   * save() replaces the file via write-temp+rename, so the link splits on the first new-code save;
+   * acceptable only because old-code processes must be stopped before switching to this version.
+   */
+  private migrateLegacyFiles(): void {
+    const dir = dirname(this.filePath);
+    migrateLegacyFile(dir, '.sandi-ads-credentials.enc', '.website-ops-credentials.enc');
+    migrateLegacyFile(dir, '.sandi-ads-credentials.enc.legacy.bak', '.website-ops-credentials.enc.legacy.bak');
   }
 
   /**
    * Load credentials from encrypted file (if exists)
    */
   load(): StoredCredentials {
+    this.migrateLegacyFiles();
     if (!existsSync(this.filePath)) {
       log.debug('No credential file found, starting fresh');
       this.credentials = {};
@@ -158,6 +171,7 @@ class CredentialStore {
    */
   private save(): void {
     try {
+      this.migrateLegacyFiles();
       const dir = dirname(this.filePath);
       if (!existsSync(dir)) {
         mkdirSync(dir, { recursive: true });

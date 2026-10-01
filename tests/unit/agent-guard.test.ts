@@ -50,7 +50,7 @@ function modelStream(withTool: boolean) {
 }
 beforeEach(() => {
   vi.stubEnv('ANTHROPIC_API_KEY', 'test-not-a-real-key');
-  vi.stubEnv('WEBSITE_OPS_SITE_ID', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
+  vi.stubEnv('SANDI_ADS_SITE_ID', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
   vi.stubEnv('MUTATIONS_ENABLED', 'true');
   vi.stubEnv('MUTATIONS_ADS', '');
   vi.stubEnv('MUTATIONS_AUTOAPPLY', '');
@@ -75,7 +75,7 @@ it.each([true, false])('real agent loop preserves approval and result events: ap
       expect(handler).not.toHaveBeenCalled();
       void approvals.list().then(entries => expect(entries[0].source).toMatchObject({ kind: 'agent', conversationId: 'conversation-a' }));
       void vi.waitFor(async () => expect(await approvals.list()).toHaveLength(1)).then(async () => {
-        expect(await approvals.resolve(event.id, approve, undefined, process.env.WEBSITE_OPS_SITE_ID)).toBe(true);
+        expect(await approvals.resolve(event.id, approve, undefined, process.env.SANDI_ADS_SITE_ID)).toBe(true);
       });
     }
   });

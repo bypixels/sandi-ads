@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * SEO MCP PRO — License Key Generator
+ * Sandi Ads — License Key Generator
  *
  * Usage:
  *   node scripts/generate-keys.js          # Generate 1 key

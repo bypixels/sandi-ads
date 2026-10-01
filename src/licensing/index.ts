@@ -1,5 +1,5 @@
 /**
- * License manager for SEO MCP PRO
+ * License manager for Sandi Ads
  *
  * Validates license keys and determines feature tier.
  * Key format: SMCP-XXXX-XXXX-XXXX-XXXX (alphanumeric segments with checksum)
@@ -53,14 +53,14 @@ export function validateKey(key: string): boolean {
 export function getLicenseInfo(): LicenseInfo {
   if (cachedLicense) return cachedLicense;
 
-  const key = process.env.SEO_MCP_PRO_KEY?.trim() || null;
+  const key = process.env.SANDI_ADS_KEY?.trim() || process.env.SEO_MCP_PRO_KEY?.trim() || null;
 
   if (!key) {
     cachedLicense = { tier: 'free', key: null, valid: false };
   } else if (validateKey(key)) {
     cachedLicense = { tier: 'pro', key, valid: true };
   } else {
-    log.warn('Invalid SEO_MCP_PRO_KEY format — running in free tier');
+    log.warn('Invalid license key format (SANDI_ADS_KEY) — running in free tier');
     cachedLicense = { tier: 'free', key, valid: false };
   }
 

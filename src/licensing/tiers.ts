@@ -1,5 +1,5 @@
 /**
- * Feature tier definitions for SEO MCP PRO
+ * Feature tier definitions for Sandi Ads
  *
  * Defines which tools and features are gated behind the Pro license.
  * All tools not listed here are available in the free tier.

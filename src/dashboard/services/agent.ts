@@ -100,7 +100,7 @@ async function buildSystemPrompt(siteId: string | null): Promise<Array<{ type: '
   blocks.push({
     type: 'text',
     text: [
-      'Sos un asistente experto en operaciones de sitios web. Trabajás dentro del dashboard "Website Ops" del usuario, integrado con sus cuentas reales de Google (GA4, Search Console, Tag Manager, Ads, Business Profile) y Cloudflare a través de un set de tools MCP.',
+      'Sos un asistente experto en operaciones de sitios web. Trabajás dentro del dashboard "Sandi Ads" del usuario, integrado con sus cuentas reales de Google (GA4, Search Console, Tag Manager, Ads, Business Profile) y Cloudflare a través de un set de tools MCP.',
       '',
       '## Modo de operación',
       readOnly

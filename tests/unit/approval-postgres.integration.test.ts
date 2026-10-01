@@ -8,9 +8,9 @@ import { approvalStorage } from '../../src/dashboard/services/approval-storage.j
 
 const enabled = process.env.RUN_DB_INTEGRATION === '1';
 it.skipIf(!enabled)('PostgreSQL shares approvals across real processes, scopes decisions and consumes once', async () => {
-  const target = new URL(process.env.DATABASE_URL || 'postgres://website_ops:website_ops_dev@localhost:5434/website_ops');
-  if (!['localhost', '127.0.0.1'].includes(target.hostname) || target.port !== '5434' || target.pathname !== '/website_ops') {
-    throw new Error('Integration restricted to own local website_ops on port5434');
+  const target = new URL(process.env.DATABASE_URL || 'postgres://sandi_ads:sandi_ads_dev@localhost:5434/sandi_ads');
+  if (!['localhost', '127.0.0.1'].includes(target.hostname) || target.port !== '5434' || target.pathname !== '/sandi_ads') {
+    throw new Error('Integration restricted to own local sandi_ads on port5434');
   }
   const siteA = randomUUID();
   const siteB = randomUUID();

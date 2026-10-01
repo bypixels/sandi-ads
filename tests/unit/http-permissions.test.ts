@@ -12,7 +12,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.stubEnv('DASHBOARD_API_KEY','admin-secret');
   vi.stubEnv('DASHBOARD_REVIEWER_API_KEY','review-secret');
-  vi.stubEnv('WEBSITE_OPS_SITE_ID','aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
+  vi.stubEnv('SANDI_ADS_SITE_ID','aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
   vi.stubEnv('DASHBOARD_AUTH_REQUIRED','true');
 });
 afterEach(() => vi.unstubAllEnvs());

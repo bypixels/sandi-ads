@@ -59,14 +59,14 @@ process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 async function main() {
   try {
     const license = getLicenseInfo();
-    logger.info(`SEO MCP PRO — License tier: ${license.tier.toUpperCase()}`, {
+    logger.info(`Sandi Ads — License tier: ${license.tier.toUpperCase()}`, {
       tier: license.tier,
       hasKey: !!license.key,
     });
 
     if (license.tier === 'free') {
       logger.info(
-        'Running in FREE mode. Pro reports and dashboard are disabled. Get a license at https://github.com/bypixels/SEO-MCP-PRO'
+        'Running in FREE mode. Pro reports and dashboard are disabled. Get a license at https://github.com/bypixels/sandi-ads'
       );
     }
 

@@ -18,6 +18,7 @@ dist/
 service-account*.json
 credentials.json
 .website-ops-credentials.enc
+.sandi-ads-credentials.enc
 get-token.js
 get-token.cjs
 
@@ -45,3 +46,5 @@ temp/
 
 .website-ops-*.key
 .website-ops-credentials.enc.legacy.bak
+.sandi-ads-*.key
+.sandi-ads-credentials.enc.legacy.bak

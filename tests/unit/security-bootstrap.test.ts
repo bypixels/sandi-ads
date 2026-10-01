@@ -32,8 +32,8 @@ it('bootstraps independent persistent owner-only keys without exposing them', ()
   const encryptionKey = encryptionPassphrase();
   const accessKey = process.env.DASHBOARD_API_KEY;
   expect(encryptionKey).not.toBe(accessKey);
-  expect(statSync(securityFile('.website-ops-encryption.key')).mode & 0o777).toBe(0o600);
-  expect(statSync(securityFile('.website-ops-dashboard.key')).mode & 0o777).toBe(0o600);
+  expect(statSync(securityFile('.sandi-ads-encryption.key')).mode & 0o777).toBe(0o600);
+  expect(statSync(securityFile('.sandi-ads-dashboard.key')).mode & 0o777).toBe(0o600);
   vi.stubEnv('DASHBOARD_API_KEY', '');
   initializeSecurity();
   expect(process.env.DASHBOARD_API_KEY).toBe(accessKey);
@@ -54,14 +54,14 @@ it.each(['machine', 'api'])('recovers %s legacy ciphertext after bootstrap and A
 it('rejects tampering and refuses legacy fallback on new ciphertext', () => {
   const encrypted = encryptString('sensitive');
   expect(() => decryptString({ ...encrypted, tag: '00'.repeat(16) })).toThrow();
-  const old = legacy('legacy', readFileSync(securityFile('.website-ops-legacy-encryption.key'), 'utf8'));
+  const old = legacy('legacy', readFileSync(securityFile('.sandi-ads-legacy-encryption.key'), 'utf8'));
   expect(() => decryptString({ ...old, version: 2 })).toThrow();
 });
 
 it('backs up and migrates readable credentials but preserves unreadable files', async () => {
   vi.resetModules();
   const { credentialStore } = await import('../../src/dashboard/services/credential-store.js');
-  const path = securityFile('.website-ops-credentials.enc');
+  const path = securityFile('.sandi-ads-credentials.enc');
   const old = `website-ops-${process.env.USER || 'default'}-${hostname()}`;
   const raw = JSON.stringify(legacy(JSON.stringify({ google_client_id: 'preserved' }), old));
   writeFileSync(path, raw);
@@ -77,7 +77,7 @@ it('backs up and migrates readable credentials but preserves unreadable files', 
 it('reviewer can approve but cannot change configuration or execute tools', () => {
   vi.stubEnv('DASHBOARD_API_KEY', 'admin-key');
   vi.stubEnv('DASHBOARD_REVIEWER_API_KEY', 'review-key');
-  vi.stubEnv('WEBSITE_OPS_SITE_ID', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
+  vi.stubEnv('SANDI_ADS_SITE_ID', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
   const reviewer = authenticateRequest({ headers: { authorization: 'Bearer review-key' } } as IncomingMessage);
   expect(reviewer.role).toBe('reviewer');
   expect(authorizeEndpoint(reviewer, 'POST', '/api/agent/approve')).toBe(true);

@@ -1,18 +1,20 @@
+name: sandi-ads
+
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: website-ops-pg
+    container_name: sandi-ads-pg
     restart: unless-stopped
     environment:
-      POSTGRES_USER: website_ops
-      POSTGRES_PASSWORD: website_ops_dev
-      POSTGRES_DB: website_ops
+      POSTGRES_USER: sandi_ads
+      POSTGRES_PASSWORD: sandi_ads_dev
+      POSTGRES_DB: sandi_ads
     ports:
       - "127.0.0.1:5434:5432"
     volumes:
-      - website_ops_pg_data:/var/lib/postgresql/data
+      - sandi_ads_pg_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U website_ops -d website_ops"]
+      test: ["CMD-SHELL", "pg_isready -U sandi_ads -d sandi_ads"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -21,7 +23,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: website-ops-dashboard
+    container_name: sandi-ads-dashboard
     restart: unless-stopped
     depends_on:
       postgres:
@@ -30,7 +32,7 @@ services:
       - .env
     environment:
       # DB_URL points at the postgres service via the compose network
-      DATABASE_URL: postgres://website_ops:website_ops_dev@postgres:5432/website_ops
+      DATABASE_URL: postgres://sandi_ads:sandi_ads_dev@postgres:5432/sandi_ads
       DASHBOARD_ENABLED: "true"
       DASHBOARD_PORT: "3737"
       DASHBOARD_HOST: "0.0.0.0"
@@ -42,8 +44,8 @@ services:
       - "127.0.0.1:3737:3737"
     volumes:
       # Persists encrypted credentials, legacy import archives, and logs across restarts.
-      - website_ops_data:/data
+      - sandi_ads_data:/data
 
 volumes:
-  website_ops_pg_data:
-  website_ops_data:
+  sandi_ads_pg_data:
+  sandi_ads_data:

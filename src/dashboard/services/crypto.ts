@@ -25,6 +25,7 @@ import { encryptionPassphrase, legacyPassphrases } from './security-config.js';
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 16;
 const KEY_LENGTH = 32;
+// KDF constant, not branding: changing it makes every stored ciphertext undecryptable. Never change.
 const SALT = 'website-ops-mcp-credential-store';
 
 /**

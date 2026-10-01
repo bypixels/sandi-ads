@@ -1,5 +1,5 @@
 /**
- * Tool types and definitions for Website Ops MCP
+ * Tool types and definitions for Sandi Ads
  */
 
 import { z } from 'zod';

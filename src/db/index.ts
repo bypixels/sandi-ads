@@ -13,7 +13,7 @@ import * as schema from './schema.js';
 
 const log = createServiceLogger('db');
 
-const DEFAULT_URL = 'postgres://website_ops:website_ops_dev@localhost:5434/website_ops';
+const DEFAULT_URL = 'postgres://sandi_ads:sandi_ads_dev@localhost:5434/sandi_ads';
 
 let pool: pg.Pool | null = null;
 let db: NodePgDatabase<typeof schema> | null = null;

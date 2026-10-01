@@ -7,6 +7,11 @@ export interface AuthResult {
   reason?: string;
 }
 
+/** Client site pinned for this process. SANDI_ADS_SITE_ID wins; WEBSITE_OPS_SITE_ID is the pre-rename fallback. */
+export function getPinnedSiteId(): string | undefined {
+  return process.env.SANDI_ADS_SITE_ID || process.env.WEBSITE_OPS_SITE_ID || undefined;
+}
+
 function matches(value: string, secret: string | undefined): boolean {
   return !!secret && timingSafeEqual(createHash('sha256').update(value).digest(), createHash('sha256').update(secret).digest());
 }
@@ -23,7 +28,7 @@ export function authenticateRequest(req: IncomingMessage): AuthResult {
   const header = req.headers['x-api-key'];
   const tokens = [bearer, typeof header === 'string' ? header : undefined].filter((v): v is string => !!v);
   if (tokens.some(token => matches(token, apiKey))) return { authenticated: true, role: 'admin' };
-  if (tokens.some(token => matches(token, reviewerKey)) && process.env.WEBSITE_OPS_SITE_ID) {
+  if (tokens.some(token => matches(token, reviewerKey)) && getPinnedSiteId()) {
     return { authenticated: true, role: 'reviewer' };
   }
   return { authenticated: false, reason: 'Invalid or missing API key' };

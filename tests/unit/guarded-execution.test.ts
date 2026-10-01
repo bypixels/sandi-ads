@@ -67,7 +67,7 @@ async function waitForApproval() {
 }
 
 beforeEach(() => {
-  vi.stubEnv('WEBSITE_OPS_SITE_ID', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
+  vi.stubEnv('SANDI_ADS_SITE_ID', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
   vi.stubEnv('MUTATIONS_ENABLED', 'false');
   vi.stubEnv('MUTATIONS_ADS', '');
   vi.stubEnv('MUTATIONS_GSC', '');
@@ -118,7 +118,7 @@ describe.each(sources)('shared guard: $kind', (source) => {
   it('never executes a denied request', async () => {
     vi.stubEnv('MUTATIONS_ENABLED', 'true');
     const running = guardedExecute('ads_create_campaign', { customerId: '1111111111' }, { source });
-    await approvals.resolve((await waitForApproval()).id, false, 'No autorizado', process.env.WEBSITE_OPS_SITE_ID);
+    await approvals.resolve((await waitForApproval()).id, false, 'No autorizado', process.env.SANDI_ADS_SITE_ID);
     expect((await running).status).toBe('denied');
     expect(handler).not.toHaveBeenCalled();
   });
@@ -243,7 +243,7 @@ it('HTTP denial returns 403, not a successful empty result', async () => {
   vi.stubEnv('MUTATIONS_ENABLED', 'true');
   const response = httpResponse();
   const running = handleApiRoute(httpRequest('/api/tool/ads_create_campaign', { customerId: '1111111111' }), response.res, '/api/tool/ads_create_campaign');
-  await approvals.resolve((await waitForApproval()).id, false, undefined, process.env.WEBSITE_OPS_SITE_ID);
+  await approvals.resolve((await waitForApproval()).id, false, undefined, process.env.SANDI_ADS_SITE_ID);
   await running;
   expect(response.spies.writeHead).toHaveBeenCalledWith(403, expect.anything());
   expect(handler).not.toHaveBeenCalled();
@@ -265,7 +265,7 @@ it.each(sources)('client-A session cannot write client B even with auto-approval
   expect(await approvals.list()).toEqual([]);
 });
 it('configured client is required even when the caller supplies a site', async () => {
-  vi.stubEnv('WEBSITE_OPS_SITE_ID', '');
+  vi.stubEnv('SANDI_ADS_SITE_ID', '');
   vi.stubEnv('MUTATIONS_ENABLED', 'true');
   const result = await guardedExecute('ads_create_campaign', { customerId: '1111111111' },
     { source: { kind: 'http', siteId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' } });
@@ -286,7 +286,7 @@ it('changing the pinned client during approval prevents execution', async () => 
   vi.stubEnv('MUTATIONS_ENABLED', 'true');
   const running = guardedExecute('ads_create_campaign', { customerId: '1111111111' }, { source: sources[0] });
   const pending = await waitForApproval();
-  vi.stubEnv('WEBSITE_OPS_SITE_ID', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb');
+  vi.stubEnv('SANDI_ADS_SITE_ID', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb');
   await approvals.resolve(pending.id, true, undefined, pending.source.siteId);
   expect((await running).status).toBe('blocked');
   expect(handler).not.toHaveBeenCalled();

@@ -104,7 +104,7 @@ export const redditSearchThreadsTool: ToolDefinition<RedditSearchInput, RedditSe
     const response = await httpClient.get(url, {
       headers: {
         // Reddit asks for a descriptive UA; spoofing a browser gets you 429s.
-        'User-Agent': 'website-ops-mcp/0.1 (https://github.com/bypixels) discussion-finder',
+        'User-Agent': 'sandi-ads/0.1 (https://github.com/bypixels) discussion-finder',
       },
       responseType: 'json',
     });

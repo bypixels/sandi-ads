@@ -7,6 +7,7 @@
 
 import { getTool } from '../../tools/index.js';
 import { MCPError, ErrorCode, type MCPErrorDetails } from '../../types/errors.js';
+import { getPinnedSiteId } from '../auth.js';
 import { assertMutationScope } from './mutation-scope.js';
 import { isMutatingTool, isMutationAllowed, isAutoApproved } from './mutations.js';
 import * as approvalGate from './approval-gate.js';
@@ -53,7 +54,7 @@ export async function guardedExecute<T = unknown>(
   const mutating = isMutatingTool(toolName);
   const source = { ...context.source };
   const requestedSiteId = source.siteId;
-  const configuredSiteId = process.env.WEBSITE_OPS_SITE_ID?.trim();
+  const configuredSiteId = getPinnedSiteId()?.trim();
   let executionInput: unknown = input;
 
   const record = async (status: 'success' | 'error' | 'blocked', error?: string, result?: unknown) => {
@@ -121,7 +122,7 @@ export async function guardedExecute<T = unknown>(
     // A kill switch changed while approval was pending must still stop execution.
     if (mutating && !isMutationAllowed(toolName)) return await block();
     if (mutating) {
-      if (process.env.WEBSITE_OPS_SITE_ID?.trim() !== configuredSiteId) {
+      if (getPinnedSiteId()?.trim() !== configuredSiteId) {
         throw new MCPError({ code: ErrorCode.RESOURCE_ACCESS_DENIED,
           message: 'El cliente autorizado cambió mientras la operación estaba pendiente.', retryable: false });
       }

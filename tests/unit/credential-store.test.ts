@@ -3,12 +3,12 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { existsSync, unlinkSync } from 'node:fs';
+import { existsSync, unlinkSync, renameSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 // Set env BEFORE importing the module (the constructor reads CREDENTIAL_STORE_PATH)
 const TEST_DIR = join(import.meta.dirname, '..');
-const TEST_STORE_PATH = join(TEST_DIR, '.website-ops-credentials.enc');
+const TEST_STORE_PATH = join(TEST_DIR, '.sandi-ads-credentials.enc');
 
 vi.stubEnv('CREDENTIAL_STORE_PATH', TEST_DIR);
 vi.stubEnv('CREDENTIAL_ENCRYPTION_KEY', 'test-encryption-key-for-unit-tests');
@@ -112,6 +112,19 @@ describe('CredentialStore', () => {
     const loaded = credentialStore.load();
     expect(loaded.google_client_id).toBe('load-test');
     expect(loaded.cloudflare_email).toBe('test@example.com');
+  });
+
+  it('migrates a pre-rename .website-ops-credentials.enc on load', () => {
+    credentialStore.set({ google_client_id: 'pre-rename' });
+    const legacyPath = join(TEST_DIR, '.website-ops-credentials.enc');
+    renameSync(TEST_STORE_PATH, legacyPath);
+
+    const loaded = credentialStore.load();
+    expect(loaded.google_client_id).toBe('pre-rename');
+    expect(existsSync(TEST_STORE_PATH)).toBe(true);
+    // Old name kept as a hard link for still-running old processes.
+    expect(statSync(legacyPath).ino).toBe(statSync(TEST_STORE_PATH).ino);
+    unlinkSync(legacyPath);
   });
 
   it('should remove credentials with empty values', () => {

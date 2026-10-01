@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-`website-ops-mcp` is an MCP server providing 121 tools across 17 modules for Google marketing, website performance, SEO, security, monitoring, accessibility, and Cloudflare integration. Built with TypeScript (strict mode), runs on Node.js 20+ via stdio transport. Includes an optional HTTP dashboard with credential management UI.
+`sandi-ads` (display name "Sandi Ads", formerly website-ops-mcp/seo-mcp-pro) is an MCP server providing 121 tools across 17 modules for Google marketing, website performance, SEO, security, monitoring, accessibility, and Cloudflare integration. Built with TypeScript (strict mode), runs on Node.js 20+ via stdio transport. Includes an optional HTTP dashboard with credential management UI.
 
 ## Build & Development Commands
 
@@ -85,8 +85,10 @@ Optional HTTP dashboard that runs alongside MCP stdio transport (enabled via `DA
 - **`routes/api.ts`**: REST endpoints for tools, reports, status. Body size limited to 100KB.
 - **`routes/settings.ts`**: Credential CRUD — save/load/validate/clear. Body size limited to 50KB.
 - **`routes/sse.ts`**: Server-Sent Events for real-time uptime/response-time monitoring.
-- **`services/credential-store.ts`**: AES-256-GCM encrypted file storage (`.website-ops-credentials.enc`). Schema maps credential keys to env vars. `applyToEnv()` bridges stored creds to `process.env` for auth system.
+- **`services/credential-store.ts`**: AES-256-GCM encrypted file storage (`.sandi-ads-credentials.enc`). Schema maps credential keys to env vars. `applyToEnv()` bridges stored creds to `process.env` for auth system.
 - **`services/dashboard-data.ts`**: Orchestration layer calling tool handlers via registry.
 - **`ui/index.html`**: Self-contained SPA (dark theme, no build step, inline CSS+JS).
+
+Env vars: `SANDI_ADS_SITE_ID` (pinned client site) and `SANDI_ADS_KEY` (license) are the current names; the old `WEBSITE_OPS_SITE_ID` and `SEO_MCP_PRO_KEY` still work as fallbacks. Persisted files were renamed `.website-ops-*` -> `.sandi-ads-*` and migrate automatically on first start.
 
 **Credential flow**: User saves keys via dashboard UI → `credentialStore.set()` → encrypted to disk → `credentialStore.applyToEnv()` → `authManager.reinitialize()` → tools immediately use new credentials (works for both MCP and HTTP).

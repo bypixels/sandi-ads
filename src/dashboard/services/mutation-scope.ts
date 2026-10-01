@@ -65,7 +65,7 @@ export async function assertMutationScope(
   requestedSiteId?: string,
 ): Promise<string> {
   if (!configuredSiteId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(configuredSiteId)) {
-    deny('Las escrituras requieren WEBSITE_OPS_SITE_ID con el UUID del cliente autorizado.');
+    deny('Las escrituras requieren SANDI_ADS_SITE_ID con el UUID del cliente autorizado.');
   }
   if (requestedSiteId !== undefined && requestedSiteId !== configuredSiteId) deny();
   let site: Site | undefined;

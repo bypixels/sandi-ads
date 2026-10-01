@@ -1,5 +1,5 @@
 /**
- * Configuration types for Website Ops MCP
+ * Configuration types for Sandi Ads
  */
 
 export interface AuthConfig {

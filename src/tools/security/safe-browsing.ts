@@ -92,7 +92,7 @@ export const safeBrowsingTool: ToolDefinition<SafeBrowsingInput, SafeBrowsingOut
     // Build request body
     const requestBody = {
       client: {
-        clientId: 'website-ops-mcp',
+        clientId: 'sandi-ads',
         clientVersion: '1.0.0',
       },
       threatInfo: {

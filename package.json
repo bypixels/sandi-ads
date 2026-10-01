@@ -1,12 +1,12 @@
 {
-  "name": "seo-mcp-pro",
+  "name": "sandi-ads",
   "version": "0.1.0",
   "description": "MCP server for website operations - Google Marketing, SEO, Performance, Security & Monitoring. 121 tools for Claude.",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
-    "seo-mcp-pro": "dist/index.js"
+    "sandi-ads": "dist/index.js"
   },
   "files": [
     "dist/",
@@ -15,17 +15,17 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/bypixels/SEO-MCP-PRO.git"
+    "url": "git+https://github.com/bypixels/sandi-ads.git"
   },
-  "homepage": "https://github.com/bypixels/SEO-MCP-PRO#readme",
+  "homepage": "https://github.com/bypixels/sandi-ads#readme",
   "bugs": {
-    "url": "https://github.com/bypixels/SEO-MCP-PRO/issues"
+    "url": "https://github.com/bypixels/sandi-ads/issues"
   },
   "scripts": {
     "build": "tsup && mkdir -p dist/ui dist/drizzle && cp src/dashboard/ui/index.html dist/ui/index.html && cp drizzle/*.sql dist/drizzle/",
     "db:up": "docker compose up -d",
     "db:down": "docker compose down",
-    "db:psql": "docker exec -it website-ops-pg psql -U website_ops -d website_ops",
+    "db:psql": "docker exec -it sandi-ads-pg psql -U sandi_ads -d sandi_ads",
     "start": "node dist/index.js",
     "dashboard": "DASHBOARD_ENABLED=true node dist/index.js",
     "dev": "tsx watch src/index.ts",
@@ -36,7 +36,7 @@
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist",
     "prepublishOnly": "pnpm run build",
-    "dashboard:key": "node --input-type=module -e \"import 'dotenv/config'; import {readFileSync} from 'node:fs'; import {join} from 'node:path'; console.log(process.env.DASHBOARD_API_KEY || readFileSync(join(process.env.CREDENTIAL_STORE_PATH || process.cwd(), '.website-ops-dashboard.key'), 'utf8').trim())\""
+    "dashboard:key": "node --input-type=module -e \"import 'dotenv/config'; import {readFileSync} from 'node:fs'; import {join} from 'node:path'; const d = process.env.CREDENTIAL_STORE_PATH || process.cwd(); const r = (f) => { try { return readFileSync(join(d, f), 'utf8').trim(); } catch (e) { if (e.code !== 'ENOENT') throw e; } }; console.log(process.env.DASHBOARD_API_KEY || r('.sandi-ads-dashboard.key') || readFileSync(join(d, '.website-ops-dashboard.key'), 'utf8').trim())\""
   },
   "keywords": [
     "mcp",

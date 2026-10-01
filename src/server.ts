@@ -26,7 +26,7 @@ const log = createServiceLogger('server');
 
 /** Server metadata */
 const SERVER_INFO = {
-  name: 'seo-mcp-pro',
+  name: 'sandi-ads',
   version: '0.1.0',
   description:
     'MCP server for website operations - Google Marketing, SEO, Performance, Security & Monitoring',
@@ -181,7 +181,7 @@ function registerToolHandlers(server: Server): void {
                   type: 'text' as const,
                   text: JSON.stringify({
                     error: 'PRO_LICENSE_REQUIRED',
-                    message: `The tool "${name}" requires an SEO MCP PRO license. Get yours at https://github.com/bypixels/SEO-MCP-PRO`,
+                    message: `The tool "${name}" requires a Sandi Ads license. Get yours at https://github.com/bypixels/sandi-ads`,
                     tool: name,
                   }, null, 2),
                 },
@@ -465,7 +465,7 @@ export async function startServer(): Promise<void> {
       await startDashboard();
     } else {
       log.warn(
-        'Dashboard requires an SEO MCP PRO license. Get yours at https://github.com/bypixels/SEO-MCP-PRO'
+        'Dashboard requires a Sandi Ads license. Get yours at https://github.com/bypixels/sandi-ads'
       );
     }
   }

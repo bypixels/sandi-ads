@@ -1,5 +1,5 @@
 /**
- * Error types and codes for Website Ops MCP
+ * Error types and codes for Sandi Ads
  */
 
 export enum ErrorCode {

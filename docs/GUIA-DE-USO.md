@@ -1,8 +1,8 @@
-# Guia de Uso: Website Ops MCP
+# Guia de Uso: Sandi Ads
 
-## Que es Website Ops?
+## Que es Sandi Ads?
 
-Website Ops es un servidor MCP (Model Context Protocol) que conecta Claude con herramientas especializadas para operaciones de sitios web. Incluye integracion completa con Google Marketing Platform, analisis SEO, monitoreo de rendimiento, seguridad y mas.
+Sandi Ads es un servidor MCP (Model Context Protocol) que conecta Claude con herramientas especializadas para operaciones de sitios web. Incluye integracion completa con Google Marketing Platform, analisis SEO, monitoreo de rendimiento, seguridad y mas.
 
 **En palabras simples:** Es como tener un equipo completo de marketing digital, SEO, DevOps y seguridad web disponible directamente en Claude.
 
@@ -16,9 +16,9 @@ Website Ops es un servidor MCP (Model Context Protocol) que conecta Claude con h
 ```json
 {
   "mcpServers": {
-    "website-ops": {
+    "sandi-ads": {
       "command": "node",
-      "args": ["/ruta/a/website-ops-mcp/dist/index.js"],
+      "args": ["/ruta/a/sandi-ads/dist/index.js"],
       "env": {
         "GOOGLE_CLIENT_ID": "tu-client-id",
         "GOOGLE_CLIENT_SECRET": "tu-client-secret",

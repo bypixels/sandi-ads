@@ -1,5 +1,5 @@
 /**
- * Google API types for Website Ops MCP
+ * Google API types for Sandi Ads
  */
 
 /** Google service identifiers */

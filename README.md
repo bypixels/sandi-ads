@@ -1,7 +1,7 @@
-# SEO MCP PRO
+# Sandi Ads
 
-[![npm version](https://img.shields.io/npm/v/seo-mcp-pro.svg)](https://www.npmjs.com/package/seo-mcp-pro)
-[![CI](https://github.com/bypixels/SEO-MCP-PRO/actions/workflows/ci.yml/badge.svg)](https://github.com/bypixels/SEO-MCP-PRO/actions/workflows/ci.yml)
+[![npm version](https://img.shields.io/npm/v/sandi-ads.svg)](https://www.npmjs.com/package/sandi-ads)
+[![CI](https://github.com/bypixels/sandi-ads/actions/workflows/ci.yml/badge.svg)](https://github.com/bypixels/sandi-ads/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Node.js Version](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue.svg)](https://www.typescriptlang.org/)
@@ -29,7 +29,7 @@ A [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) server that p
 
 ## Overview
 
-`seo-mcp-pro` is a comprehensive MCP server built with TypeScript in strict mode. It connects Claude to the full spectrum of website management tasks -- from Google Analytics reporting and Tag Manager configuration to SSL analysis, Core Web Vitals monitoring, and WCAG accessibility audits.
+`sandi-ads` is a comprehensive MCP server built with TypeScript in strict mode. It connects Claude to the full spectrum of website management tasks -- from Google Analytics reporting and Tag Manager configuration to SSL analysis, Core Web Vitals monitoring, and WCAG accessibility audits.
 
 - **121 tools** across 17 modules
 - Zero external runtime frameworks -- uses `node:http` for the optional dashboard
@@ -40,7 +40,7 @@ A [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) server that p
 
 ## Free vs Pro
 
-SEO MCP PRO follows a hybrid open source model. The core MCP tools are **free and open source**. Advanced reporting, the web dashboard, and credential management require a **Pro license**.
+Sandi Ads follows a hybrid open source model. The core MCP tools are **free and open source**. Advanced reporting, the web dashboard, and credential management require a **Pro license**.
 
 | Feature | Free | Pro |
 |---|:---:|:---:|
@@ -71,7 +71,7 @@ SEO MCP PRO follows a hybrid open source model. The core MCP tools are **free an
 Set your license key as an environment variable:
 
 ```bash
-SEO_MCP_PRO_KEY=SMCP-XXXX-XXXX-XXXX-XXXX
+SANDI_ADS_KEY=SMCP-XXXX-XXXX-XXXX-XXXX
 ```
 
 Or add it to your `.env` file. The server logs the active tier on startup.
@@ -84,18 +84,18 @@ Or add it to your `.env` file. The server logs the active tier on startup.
 
 ```bash
 # Run directly with npx (no install needed)
-npx seo-mcp-pro
+npx sandi-ads
 
 # Or install globally
-npm install -g seo-mcp-pro
-seo-mcp-pro
+npm install -g sandi-ads
+sandi-ads
 ```
 
 ### Install from source
 
 ```bash
-git clone https://github.com/bypixels/SEO-MCP-PRO.git
-cd SEO-MCP-PRO
+git clone https://github.com/bypixels/sandi-ads.git
+cd sandi-ads
 pnpm install
 pnpm build
 pnpm start
@@ -139,11 +139,11 @@ The server organizes its tools into 17 modules spanning 14 core categories:
 
 All configuration is handled through environment variables. Create a `.env` file in the project root:
 
-### SEO MCP PRO License
+### Sandi Ads License
 
 | Variable | Description |
 |---|---|
-| `SEO_MCP_PRO_KEY` | Pro license key (`SMCP-XXXX-XXXX-XXXX-XXXX`) |
+| `SANDI_ADS_KEY` | Pro license key (`SMCP-XXXX-XXXX-XXXX-XXXX`) (the old `SEO_MCP_PRO_KEY` still works as a fallback) |
 
 ### Google OAuth 2.0
 
@@ -201,12 +201,12 @@ Add the server to your `claude_desktop_config.json`:
 ```json
 {
   "mcpServers": {
-    "seo-mcp-pro": {
+    "sandi-ads": {
       "command": "npx",
-      "args": ["-y", "seo-mcp-pro"],
+      "args": ["-y", "sandi-ads"],
       "env": {
         "GOOGLE_PAGESPEED_API_KEY": "your-api-key",
-        "SEO_MCP_PRO_KEY": "SMCP-XXXX-XXXX-XXXX-XXXX"
+        "SANDI_ADS_KEY": "SMCP-XXXX-XXXX-XXXX-XXXX"
       }
     }
   }
@@ -218,9 +218,9 @@ Or if installed from source:
 ```json
 {
   "mcpServers": {
-    "seo-mcp-pro": {
+    "sandi-ads": {
       "command": "node",
-      "args": ["/path/to/SEO-MCP-PRO/dist/index.js"],
+      "args": ["/path/to/sandi-ads/dist/index.js"],
       "env": {
         "GOOGLE_CLIENT_ID": "your-client-id",
         "GOOGLE_CLIENT_SECRET": "your-client-secret",
@@ -241,10 +241,10 @@ Once configured, Claude will have access to all available tools. Ask Claude to a
 The server includes an optional self-contained web dashboard for browser-based access to all tools and reports. **Requires a Pro license.**
 
 ```bash
-SEO_MCP_PRO_KEY=SMCP-... pnpm dashboard
+SANDI_ADS_KEY=SMCP-... pnpm dashboard
 ```
 
-Or set `DASHBOARD_ENABLED=true` and `SEO_MCP_PRO_KEY` in your `.env` file and run `pnpm start`.
+Or set `DASHBOARD_ENABLED=true` and `SANDI_ADS_KEY` in your `.env` file and run `pnpm start`.
 
 The dashboard is available at `http://localhost:3737` and provides:
 

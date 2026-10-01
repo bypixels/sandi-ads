@@ -9,7 +9,7 @@
  */
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { authenticateRequest } from '../auth.js';
+import { authenticateRequest, getPinnedSiteId } from '../auth.js';
 import { runAgentTurn, isAgentConfigured, type AgentEvent } from '../services/agent.js';
 import * as approvalGate from '../services/approval-gate.js';
 import { conversationStore } from '../services/agent-conversations.js';
@@ -61,7 +61,7 @@ export async function handleAgentRoute(
         sendJson(res, { error: 'Se requiere toolUseId, approve booleano y reason de texto opcional.' }, 400);
         return true;
       }
-      const siteId = process.env.WEBSITE_OPS_SITE_ID || (auth.role === 'admin' ? body.siteId : undefined);
+      const siteId = getPinnedSiteId() || (auth.role === 'admin' ? body.siteId : undefined);
       if (!siteId || (body.siteId && body.siteId !== siteId)) {
         sendJson(res, { error: 'Se requiere el cliente autorizado para aprobar.' }, 403);
         return true;
@@ -82,7 +82,7 @@ export async function handleAgentRoute(
   if (pathname === '/api/agent/pending-approvals' && req.method === 'GET') {
     const cid = getParams(req).get('conversationId') || undefined;
     const siteId = auth.role === 'reviewer'
-      ? process.env.WEBSITE_OPS_SITE_ID : getParams(req).get('siteId') || undefined;
+      ? getPinnedSiteId() : getParams(req).get('siteId') || undefined;
     sendJson(res, { pending: await approvalGate.list({ conversationId: cid, siteId }) });
     return true;
   }
