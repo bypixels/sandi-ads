@@ -43,6 +43,7 @@ export interface GuardedResult<T = unknown> {
 
 const POLICY_BLOCK_REASON =
   'Las escrituras están deshabilitadas. Habilítelas con MUTATIONS_ENABLED=true o la opción del servicio.';
+const OTHER_CLIENT_REASON = 'La herramienta apunta a otro cliente distinto al de esta sesión.';
 
 export async function guardedExecute<T = unknown>(
   toolName: string,
@@ -98,6 +99,13 @@ export async function guardedExecute<T = unknown>(
     // Bind approval to a private snapshot, not the caller's mutable object.
     executionInput = structuredClone(parsed.data);
 
+    // Any tool (read or write) naming a client must name the session's client.
+    const inputSiteId = (executionInput as { siteId?: unknown } | null)?.siteId;
+    if (typeof inputSiteId === 'string' && requestedSiteId && inputSiteId !== requestedSiteId) {
+      await record('blocked', OTHER_CLIENT_REASON);
+      return { status: 'denied', error: OTHER_CLIENT_REASON, durationMs: Date.now() - startedAt };
+    }
+
     if (mutating && !isMutationAllowed(toolName)) return await block();
 
     if (mutating) {
@@ -136,7 +144,7 @@ export async function guardedExecute<T = unknown>(
         retryable: false,
       });
     }
-    const result = await tool.handler(executionInput) as T;
+    const result = await tool.handler(executionInput, { sourceKind: source.kind, siteId: source.siteId }) as T;
     await record('success', undefined, result);
     return { status: 'success', result, durationMs: Date.now() - startedAt };
   } catch (err) {

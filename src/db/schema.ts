@@ -254,3 +254,34 @@ export const pendingApprovals = pgTable('pending_approvals', {
   status: text('status', { enum: ['pending', 'decided', 'consumed'] }).notNull().default('pending'),
   decision: jsonb('decision'),
 }, t => ({ idxSiteStatus: index('pending_approvals_site_status_idx').on(t.siteId, t.status, t.expiresAt) }));
+
+// ---------------------------------------------------------------------------
+// Social posts — own FB/IG publishing queue. Mirrors drizzle/0007; the store
+// (services/social-posts-store.ts) queries it with raw SQL via the pool.
+// ---------------------------------------------------------------------------
+
+export const socialPosts = pgTable('social_posts', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  siteId: uuid('site_id').notNull().references(() => sites.id, { onDelete: 'restrict' }),
+  platforms: text('platforms').array().notNull(),
+  message: text('message').notNull().default(''),
+  imageUrl: text('image_url'),
+  imageKey: text('image_key'),
+  scheduledAt: timestamp('scheduled_at', { withTimezone: true, mode: 'string' }),
+  status: text('status', {
+    enum: ['draft', 'approved', 'rejected', 'cancelled', 'publishing', 'published', 'failed', 'needs_review', 'late'],
+  }).notNull().default('draft'),
+  createdBy: text('created_by').notNull(),
+  approvedBy: text('approved_by'),
+  approvedAt: timestamp('approved_at', { withTimezone: true, mode: 'string' }),
+  decisionNote: text('decision_note'),
+  remoteIds: jsonb('remote_ids').$type<Record<string, string>>().notNull().default({}),
+  lastError: text('last_error'),
+  version: integer('version').notNull().default(1),
+  publishingStartedAt: timestamp('publishing_started_at', { withTimezone: true, mode: 'string' }),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' }).notNull().defaultNow(),
+}, t => ({
+  idxStatusScheduled: index('social_posts_status_scheduled_idx').on(t.status, t.scheduledAt),
+  idxSiteCreated: index('social_posts_site_created_idx').on(t.siteId, t.createdAt.desc()),
+}));

@@ -44,6 +44,13 @@ export const CREDENTIAL_SCHEMA: Record<string, { envVar: string; label: string; 
   meta_app_secret:                { envVar: 'META_APP_SECRET',                label: 'Meta: App Secret',             secret: true },
   meta_app_id:                    { envVar: 'META_APP_ID',                    label: 'Meta: App ID',                 secret: false },
 
+  // Cloudflare R2 (post images)
+  r2_account_id:                  { envVar: 'R2_ACCOUNT_ID',                  label: 'R2: Account ID',               secret: false },
+  r2_access_key_id:               { envVar: 'R2_ACCESS_KEY_ID',               label: 'R2: Access Key ID',            secret: false },
+  r2_secret_access_key:           { envVar: 'R2_SECRET_ACCESS_KEY',           label: 'R2: Secret Access Key',        secret: true },
+  r2_bucket:                      { envVar: 'R2_BUCKET',                      label: 'R2: Bucket',                   secret: false },
+  r2_public_base_url:             { envVar: 'R2_PUBLIC_BASE_URL',             label: 'R2: URL pública base',         secret: false },
+
   // Anthropic (agent)
   anthropic_api_key:              { envVar: 'ANTHROPIC_API_KEY',              label: 'Anthropic API Key',            secret: true },
 };
@@ -85,6 +92,12 @@ export const CREDENTIAL_GROUPS = [
     label: 'Meta (Facebook / Instagram)',
     description: 'Token de usuario de sistema para leer anuncios, paginas e Instagram (solo lectura)',
     keys: ['meta_access_token', 'meta_app_secret', 'meta_app_id'],
+  },
+  {
+    id: 'r2',
+    label: 'Cloudflare R2 (imágenes)',
+    description: 'Almacenamiento de las imágenes de publicaciones de Facebook e Instagram',
+    keys: ['r2_account_id', 'r2_access_key_id', 'r2_secret_access_key', 'r2_bucket', 'r2_public_base_url'],
   },
   {
     id: 'anthropic',

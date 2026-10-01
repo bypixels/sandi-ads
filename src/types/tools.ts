@@ -45,6 +45,12 @@ export const ToolCategory = {
   META: 'meta' as const,
 };
 
+/** Who invoked a tool; passed only by guardedExecute. */
+export interface ToolExecutionContext {
+  sourceKind?: 'http' | 'mcp' | 'internal' | 'agent';
+  siteId?: string;
+}
+
 /** Base tool definition */
 export interface ToolDefinition<TInput = unknown, TOutput = unknown> {
   /** Tool name (follows pattern: {module}_{action}_{target}) */
@@ -55,8 +61,8 @@ export interface ToolDefinition<TInput = unknown, TOutput = unknown> {
   category: ToolCategory;
   /** Input schema (Zod) */
   inputSchema: z.ZodTypeAny;
-  /** Handler function */
-  handler: (input: TInput) => Promise<TOutput>;
+  /** Handler function; `context` is only set when called through guardedExecute */
+  handler: (input: TInput, context?: ToolExecutionContext) => Promise<TOutput>;
   /** Whether this tool requires authentication */
   requiresAuth?: boolean;
   /** Specific service for rate limiting */

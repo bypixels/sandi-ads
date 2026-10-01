@@ -164,7 +164,18 @@ export async function handleSitesRoute(
     }
 
     if (req.method === 'DELETE') {
-      const ok = await sitesStore.remove(id);
+      let ok: boolean;
+      try {
+        ok = await sitesStore.remove(id);
+      } catch (error) {
+        // social_posts.site_id is ON DELETE RESTRICT (23503 = foreign_key_violation); drizzle may wrap the pg error.
+        const e = error as { code?: unknown; cause?: { code?: unknown } };
+        if ((e?.code ?? e?.cause?.code) === '23503') {
+          sendJson(res, { error: 'Este cliente tiene publicaciones; cancélalas o archívalas antes de borrarlo.' }, 409);
+          return true;
+        }
+        throw error;
+      }
       if (!ok) {
         sendJson(res, { error: 'Site not found' }, 404);
         return true;

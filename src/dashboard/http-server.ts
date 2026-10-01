@@ -14,6 +14,7 @@ import { handleSitesRoute } from './routes/sites.js';
 import { handleAgentRoute } from './routes/agent.js';
 import { handleSignalsRoute } from './routes/signals.js';
 import { handleDraftsRoute } from './routes/drafts.js';
+import { handlePostsRoute } from './routes/posts.js';
 import { handleCommandCenterRoute } from './routes/command-center.js';
 import { handleOAuthRoute } from './routes/oauth.js';
 import { authenticateRequest, authorizeEndpoint } from './auth.js';
@@ -61,7 +62,7 @@ export function createDashboardServer(): Server {
       }
     }
     res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-API-Key, X-Site-ID');
 
     // Handle preflight
@@ -116,6 +117,12 @@ export function createDashboardServer(): Server {
       // Drafts routes (agent inbox: list / edit / approve / publish)
       if (pathname === '/api/drafts' || pathname.startsWith('/api/drafts/')) {
         const handled = await handleDraftsRoute(req, res, pathname);
+        if (handled) return;
+      }
+
+      // Social posts (FB/IG drafts + approval) and post image uploads
+      if (pathname === '/api/posts' || pathname.startsWith('/api/posts/') || pathname === '/api/media') {
+        const handled = await handlePostsRoute(req, res, pathname);
         if (handled) return;
       }
 

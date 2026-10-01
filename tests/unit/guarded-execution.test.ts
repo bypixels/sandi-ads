@@ -99,7 +99,7 @@ describe.each(sources)('shared guard: $kind', (source) => {
   });
   it('permits validated reads without approval', async () => {
     expect((await guardedExecute('gsc_list_sites', { customerId: '1111111111' }, { source })).status).toBe('success');
-    expect(handler).toHaveBeenCalledWith({ customerId: '1111111111', amount: 10 });
+    expect(handler).toHaveBeenCalledWith({ customerId: '1111111111', amount: 10 }, expect.objectContaining({ sourceKind: source.kind }));
     expect(await approvals.list()).toEqual([]);
     expect(mocks.audit).not.toHaveBeenCalled();
   });
@@ -172,7 +172,7 @@ it('binds approval to immutable snapshots of the validated input', async () => {
   expect((await approvals.list())[0].action.input).toEqual({ customerId: '1111111111', amount: 10 });
   await approvals.resolve(pending.id, true, undefined, pending.source.siteId);
   await running;
-  expect(handler).toHaveBeenCalledWith({ customerId: '1111111111', amount: 10 });
+  expect(handler).toHaveBeenCalledWith({ customerId: '1111111111', amount: 10 }, expect.anything());
 });
 it('denies unattended requests after five minutes', async () => {
   vi.useFakeTimers();
@@ -290,4 +290,30 @@ it('changing the pinned client during approval prevents execution', async () => 
   await approvals.resolve(pending.id, true, undefined, pending.source.siteId);
   expect((await running).status).toBe('blocked');
   expect(handler).not.toHaveBeenCalled();
+});
+describe('input siteId must match the session client', () => {
+  const siteA = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const siteB = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  beforeEach(() => {
+    mocks.tools.set('site_read', { name: 'site_read', description: 'r', category: 'google',
+      inputSchema: z.object({ siteId: z.string() }), handler });
+  });
+  it.each([
+    { kind: 'agent', conversationId: 'conversation-a', siteId: siteA },
+    { kind: 'http', siteId: siteA },
+  ] as GuardedSource[])('$kind session for A cannot run a (read) tool targeting B', async (source) => {
+    const r = await guardedExecute('site_read', { siteId: siteB }, { source });
+    expect(r.status).toBe('denied');
+    expect(r.error).toBe('La herramienta apunta a otro cliente distinto al de esta sesión.');
+    expect(handler).not.toHaveBeenCalled();
+  });
+  it('same client runs and the handler receives the source context', async () => {
+    const r = await guardedExecute('site_read', { siteId: siteA },
+      { source: { kind: 'agent', conversationId: 'conversation-a', siteId: siteA } });
+    expect(r.status).toBe('success');
+    expect(handler).toHaveBeenCalledWith({ siteId: siteA }, { sourceKind: 'agent', siteId: siteA });
+  });
+  it('a source without a client keeps the tool-level checks only', async () => {
+    expect((await guardedExecute('site_read', { siteId: siteB }, { source: { kind: 'mcp' } })).status).toBe('success');
+  });
 });

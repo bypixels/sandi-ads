@@ -1,5 +1,6 @@
 /**
- * Meta (Facebook / Instagram Graph API) tools module — read-only.
+ * Meta (Facebook / Instagram Graph API) tools module — read-only against Meta.
+ * meta_draft_post only writes a local draft; it never calls Meta.
  */
 
 import {
@@ -13,6 +14,7 @@ import {
   metaGetIgAccountTool,
   metaListIgMediaTool,
 } from './pages.js';
+import { metaDraftPostTool } from './posts.js';
 import type { ToolDefinition } from '../../types/tools.js';
 
 /** All Meta tools */
@@ -25,4 +27,5 @@ export const metaTools: ToolDefinition<any, any>[] = [
   metaListPagePostsTool,
   metaGetIgAccountTool,
   metaListIgMediaTool,
+  metaDraftPostTool,
 ];

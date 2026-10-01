@@ -573,6 +573,29 @@
     margin-bottom: -1px;
     transition: color var(--t-fast), border-color var(--t-fast);
   }
+  .pst-form { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); padding: 16px 18px; margin-bottom: 8px; }
+  .pst-form input[type=datetime-local], .pst-note-input { padding: 8px 10px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-md); color: var(--text); font-size: 13px; font-family: inherit; }
+  .pst-note-input { width: 100%; margin-top: 6px; }
+  .pst-platforms { display: flex; gap: 18px; flex-wrap: wrap; }
+  .pst-check { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-soft); margin-bottom: 4px; }
+  .pst-note { font-size: 12px; color: var(--text-muted); margin: 4px 0; }
+  .pst-preview { display: flex; gap: 12px; align-items: flex-start; margin-top: 8px; }
+  .pst-preview img { max-width: 160px; max-height: 160px; border-radius: var(--r-md); border: 1px solid var(--border); }
+  .pst-filters { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+  .pst-filter { padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text-muted); font-size: 12px; cursor: pointer; font-family: inherit; }
+  .pst-filter.active { color: var(--accent); border-color: var(--accent-border); background: var(--accent-bg); }
+  .pst-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); padding: 12px 16px; margin-bottom: 10px; }
+  .pst-card-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .pst-card-body { display: flex; gap: 12px; align-items: flex-start; }
+  .pst-thumb { width: 72px; height: 72px; object-fit: cover; border-radius: var(--r-md); border: 1px solid var(--border); flex-shrink: 0; }
+  .pst-msg { font-size: 13.5px; white-space: pre-wrap; word-break: break-word; }
+  .pst-meta { font-size: 12px; color: var(--text-muted); margin-top: 6px; }
+  .pst-confirm { margin-top: 10px; padding: 10px 12px; border: 1px solid var(--warn-border); background: var(--warn-bg); border-radius: var(--r-md); font-size: 13px; }
+  .pst-pill { padding: 2px 9px; border-radius: 999px; font-size: 11.5px; font-weight: 500; border: 1px solid var(--border); background: var(--surface-3); color: var(--text-muted); }
+  .pst-pill.on { background: var(--good-bg); color: var(--good); border-color: var(--good-border); }
+  .pst-pill.warn { background: var(--warn-bg); color: var(--warn); border-color: var(--warn-border); }
+  .pst-pill.bad { background: var(--poor-bg); color: var(--poor); border-color: var(--poor-border); }
+  .pst-pill.info { background: var(--accent-bg); color: var(--accent); border-color: var(--accent-border); }
   .sub-tab:hover { color: var(--text-soft); }
   .sub-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
 
@@ -4906,15 +4929,294 @@
     } catch (err) { metaShowError(el, err); }
   }
 
+  // ==========================================================================
+  // Meta: Publicaciones (borradores FB/IG, aprobación humana, imágenes en R2)
+  // ==========================================================================
+  const PST_STATUSES = [
+    ['draft', 'Borrador', 'info'], ['approved', 'Aprobada', 'on'], ['rejected', 'Rechazada', 'off'],
+    ['cancelled', 'Cancelada', 'off'], ['publishing', 'Publicando', 'info'], ['published', 'Publicada', 'on'],
+    ['failed', 'Falló', 'bad'], ['needs_review', 'Revisar', 'warn'], ['late', 'Atrasada', 'warn'],
+  ];
+  const PST_IG_MAX = 2200;
+  const PST_IMG_MAX = 8 * 1024 * 1024;
+  const pstState = { siteId: null, posts: [], filter: 'all', editingId: null, image: null, uploading: false, approvingId: null, rejectingId: null, busy: false, rowError: null };
+
+  async function pstRequest(method, path, body) {
+    const res = await fetch(path, { method, headers: authHeaders(), body: body === undefined ? undefined : JSON.stringify(body) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const e = new Error(data.error || 'Solicitud falló');
+      e.status = res.status;
+      e.details = Array.isArray(data.details) ? data.details : [];
+      throw e;
+    }
+    return data;
+  }
+
+  function pstErrorHtml(err) {
+    const details = err.details && err.details.length ? '<ul style="margin:6px 0 0 18px">' + err.details.map(d => '<li>' + esc(d) + '</li>').join('') + '</ul>' : '';
+    return '<div class="error-msg"><strong>' + esc(err.message || 'Solicitud falló') + '</strong>' + details + '</div>';
+  }
+
+  function pstFmtDateTime(ms) {
+    const d = new Date(ms);
+    return isNaN(d.getTime()) ? '—' : d.toLocaleString('es-CR', { dateStyle: 'medium', timeStyle: 'short' });
+  }
+
+  function pstToLocalInput(ms) {
+    const d = new Date(ms);
+    const p = n => String(n).padStart(2, '0');
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + 'T' + p(d.getHours()) + ':' + p(d.getMinutes());
+  }
+
+  function pstActor(v) {
+    const s = String(v || '').toLowerCase();
+    if (!s) return '—';
+    if (s === 'dashboard' || s === 'admin') return 'Dashboard';
+    if (s.includes('agent')) return 'Agente';
+    if (s.includes('mcp')) return 'MCP';
+    return String(v);
+  }
+
+  function pstUploadError(status, data) {
+    if (status === 415) return 'Formato no admitido: usa JPEG, PNG o WebP.';
+    if (status === 413) return 'La imagen supera el máximo de 8 MB.';
+    if (status === 424) return 'Falta configurar Cloudflare R2 en Credenciales';
+    if (status === 502) return 'No se pudo subir la imagen a R2. Intenta de nuevo.';
+    return (data && (data.details && data.details[0] || data.error)) || 'No se pudo subir la imagen.';
+  }
+
+  function metaLoadPosts(el) {
+    const site = getActiveSite();
+    if (!site) { showEmpty(el, 'Selecciona un cliente para gestionar sus publicaciones'); return; }
+    const hasFb = !!site.bindings?.metaPageId;
+    const hasIg = !!site.bindings?.metaIgUserId;
+    Object.assign(pstState, { siteId: site.id, posts: [], filter: 'all', editingId: null, image: null, uploading: false, approvingId: null, rejectingId: null, busy: false, rowError: null });
+
+    el.innerHTML = '<div class="pst-form"><h3 id="pstFormTitle" style="margin-bottom:12px">Nueva publicación</h3>'
+      + '<div class="form-row"><label>Plataformas</label><div class="pst-platforms">'
+      + '<label class="pst-check"><input type="checkbox" id="pstFb"' + (hasFb ? '' : ' disabled') + '> Facebook</label>'
+      + '<label class="pst-check"><input type="checkbox" id="pstIg"' + (hasIg ? '' : ' disabled') + '> Instagram</label></div>'
+      + (hasFb ? '' : '<p class="pst-note">Facebook deshabilitado: este cliente no tiene Página de Facebook vinculada (ID de página en Meta, dentro de los datos del cliente).</p>')
+      + (hasIg ? '' : '<p class="pst-note">Instagram deshabilitado: este cliente no tiene cuenta de Instagram vinculada (ID de usuario de Instagram en los datos del cliente).</p>')
+      + '</div>'
+      + '<div class="form-row"><label for="pstMsg">Mensaje <span class="hint" id="pstCount"></span></label><textarea id="pstMsg" rows="5" placeholder="Escribe el texto de la publicación"></textarea></div>'
+      + '<div class="form-row"><label for="pstFile">Imagen <span class="hint">(JPEG, PNG o WebP, máximo 8 MB)</span></label>'
+      + '<input type="file" id="pstFile" accept="image/jpeg,image/png,image/webp"><div id="pstImg"></div></div>'
+      + '<div class="form-row"><label>Cuándo publicar</label>'
+      + '<label class="pst-check"><input type="radio" name="pstWhen" value="now" checked> Publicar apenas se apruebe</label>'
+      + '<label class="pst-check"><input type="radio" name="pstWhen" value="later"> Programar para</label>'
+      + '<input type="datetime-local" id="pstAt" disabled><span class="pst-note">Hora local de tu navegador (Costa Rica).</span></div>'
+      + '<div id="pstFormErr"></div>'
+      + '<div class="toolbar"><button class="btn btn-primary" id="pstSave">Guardar borrador</button>'
+      + '<button class="btn btn-secondary" id="pstCancelEdit" style="display:none">Cancelar edición</button></div></div>'
+      + '<h3 style="margin:20px 0 10px">Publicaciones</h3><div id="pstList"></div>';
+
+    const $ = id => el.querySelector('#' + id);
+    const fb = $('pstFb'), ig = $('pstIg'), msg = $('pstMsg'), at = $('pstAt'), file = $('pstFile');
+    const listEl = $('pstList');
+    const whenRadios = el.querySelectorAll('input[name="pstWhen"]');
+    const stale = () => pstState.siteId !== site.id || !el.isConnected;
+
+    function updateCount() {
+      const n = msg.value.length;
+      const over = ig.checked && n > PST_IG_MAX;
+      $('pstCount').textContent = n + (ig.checked ? ' / ' + PST_IG_MAX : '') + ' caracteres' + (over ? ' (excede el límite de Instagram)' : '');
+      $('pstCount').style.color = over ? 'var(--poor)' : '';
+    }
+
+    function renderImage() {
+      const img = pstState.image;
+      $('pstImg').innerHTML = pstState.uploading ? '<p class="pst-note">Subiendo imagen…</p>'
+        : img ? '<div class="pst-preview"><img src="' + esc(img.url) + '" alt="Vista previa">'
+          + '<div><div class="pst-note">' + (img.width && img.height ? esc(img.width + ' × ' + img.height + ' px') : 'Imagen cargada') + '</div>'
+          + '<button class="btn btn-secondary" id="pstImgRemove" type="button" style="padding:5px 10px;font-size:12px">Quitar imagen</button></div></div>' : '';
+      $('pstSave').disabled = pstState.uploading || pstState.busy;
+    }
+
+    function resetForm() {
+      pstState.editingId = null; pstState.image = null;
+      fb.checked = false; ig.checked = false; msg.value = ''; file.value = '';
+      whenRadios.forEach(r => { r.checked = r.value === 'now'; });
+      at.value = ''; at.disabled = true;
+      $('pstFormTitle').textContent = 'Nueva publicación';
+      $('pstCancelEdit').style.display = 'none';
+      $('pstFormErr').innerHTML = '';
+      updateCount(); renderImage();
+    }
+
+    function loadIntoForm(p) {
+      resetForm();
+      pstState.editingId = p.id;
+      fb.checked = hasFb && p.platforms.includes('facebook');
+      ig.checked = hasIg && p.platforms.includes('instagram');
+      msg.value = p.message || '';
+      if (p.imageUrl) pstState.image = { url: p.imageUrl, key: p.imageKey || null };
+      if (p.scheduledAt) {
+        whenRadios.forEach(r => { r.checked = r.value === 'later'; });
+        at.disabled = false; at.value = pstToLocalInput(p.scheduledAt);
+      }
+      $('pstFormTitle').textContent = 'Editar borrador';
+      $('pstCancelEdit').style.display = '';
+      updateCount(); renderImage();
+      el.querySelector('.pst-form').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    function renderList() {
+      const counts = {};
+      pstState.posts.forEach(p => { counts[p.status] = (counts[p.status] || 0) + 1; });
+      const shown = pstState.filter === 'all' ? pstState.posts : pstState.posts.filter(p => p.status === pstState.filter);
+      let h = '<div class="pst-filters"><button class="pst-filter' + (pstState.filter === 'all' ? ' active' : '') + '" data-filter="all">Todas (' + pstState.posts.length + ')</button>'
+        + PST_STATUSES.map(([k, label]) => '<button class="pst-filter' + (pstState.filter === k ? ' active' : '') + '" data-filter="' + k + '">' + esc(label) + ' (' + (counts[k] || 0) + ')</button>').join('') + '</div>';
+      if (!shown.length) h += '<div class="empty-mini"><h3>Sin publicaciones</h3><p>No hay publicaciones' + (pstState.filter === 'all' ? ' para este cliente todavía.' : ' con este estado.') + '</p></div>';
+      h += shown.map(p => pstCardHtml(p, site)).join('');
+      listEl.innerHTML = h;
+      listEl.querySelectorAll('button').forEach(b => { if (pstState.busy) b.disabled = true; });
+    }
+
+    async function loadList() {
+      try {
+        const d = await pstRequest('GET', '/api/posts?siteId=' + encodeURIComponent(site.id));
+        if (stale()) return;
+        pstState.posts = d.posts || [];
+        renderList();
+      } catch (err) {
+        if (!stale()) listEl.innerHTML = pstErrorHtml(err);
+      }
+    }
+
+    async function runAction(id, action, note, version) {
+      pstState.busy = true; pstState.rowError = null; renderList();
+      try {
+        await pstRequest('POST', '/api/posts/' + encodeURIComponent(id) + '/' + action, { siteId: site.id, note: note || undefined, version });
+        pstState.approvingId = null; pstState.rejectingId = null;
+        if (pstState.editingId === id) resetForm();
+      } catch (err) {
+        pstState.rowError = { id, err };
+        if (err.status === 409) pstState.approvingId = null;
+      }
+      pstState.busy = false;
+      await loadList();
+    }
+
+    async function save() {
+      const errBox = $('pstFormErr');
+      errBox.innerHTML = '';
+      const platforms = [fb.checked ? 'facebook' : null, ig.checked ? 'instagram' : null].filter(Boolean);
+      let scheduledAt = null;
+      if (el.querySelector('input[name="pstWhen"]:checked').value === 'later') {
+        scheduledAt = at.value ? new Date(at.value).getTime() : NaN;
+        if (!Number.isFinite(scheduledAt)) { errBox.innerHTML = pstErrorHtml({ message: 'Elige una fecha y hora para programar la publicación.' }); return; }
+      }
+      const body = {
+        siteId: site.id, platforms, message: msg.value,
+        imageUrl: pstState.image ? pstState.image.url : null, imageKey: pstState.image ? pstState.image.key : null,
+        scheduledAt,
+      };
+      pstState.busy = true; $('pstSave').disabled = true;
+      try {
+        if (pstState.editingId) await pstRequest('PATCH', '/api/posts/' + encodeURIComponent(pstState.editingId), body);
+        else await pstRequest('POST', '/api/posts', body);
+        resetForm();
+        errBox.innerHTML = '<div class="success-msg">Borrador guardado.</div>';
+      } catch (err) {
+        errBox.innerHTML = pstErrorHtml(err);
+      }
+      pstState.busy = false; $('pstSave').disabled = pstState.uploading;
+      await loadList();
+    }
+
+    async function upload(f) {
+      const errBox = $('pstFormErr');
+      errBox.innerHTML = '';
+      if (!['image/jpeg', 'image/png', 'image/webp'].includes(f.type)) { errBox.innerHTML = pstErrorHtml({ message: pstUploadError(415) }); file.value = ''; return; }
+      if (f.size > PST_IMG_MAX) { errBox.innerHTML = pstErrorHtml({ message: pstUploadError(413) }); file.value = ''; return; }
+      pstState.uploading = true; renderImage();
+      try {
+        const headers = { 'Content-Type': f.type };
+        const k = apiKeyInput.value.trim();
+        if (k) headers['Authorization'] = 'Bearer ' + k;
+        const res = await fetch('/api/media?siteId=' + encodeURIComponent(site.id), { method: 'POST', headers, body: f });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw Object.assign(new Error(pstUploadError(res.status, data)), { details: [] });
+        pstState.image = { url: data.url, key: data.key, width: data.width, height: data.height };
+      } catch (err) {
+        errBox.innerHTML = pstErrorHtml({ message: err.message && !/Failed to fetch|NetworkError/i.test(err.message) ? err.message : 'No se pudo subir la imagen.' });
+      }
+      pstState.uploading = false; file.value = ''; renderImage();
+    }
+
+    ig.addEventListener('change', updateCount);
+    msg.addEventListener('input', updateCount);
+    whenRadios.forEach(r => r.addEventListener('change', () => { at.disabled = el.querySelector('input[name="pstWhen"]:checked').value !== 'later'; }));
+    file.addEventListener('change', () => { if (file.files && file.files[0]) upload(file.files[0]); });
+    $('pstImg').addEventListener('click', (e) => { if (e.target.closest('#pstImgRemove')) { pstState.image = null; renderImage(); } });
+    $('pstSave').addEventListener('click', save);
+    $('pstCancelEdit').addEventListener('click', resetForm);
+
+    listEl.addEventListener('click', (e) => {
+      const btn = e.target.closest('button');
+      if (!btn || btn.disabled || pstState.busy) return;
+      if (btn.dataset.filter) { pstState.filter = btn.dataset.filter; renderList(); return; }
+      const id = btn.dataset.id;
+      const act = btn.dataset.act;
+      if (!id || !act) return;
+      const post = pstState.posts.find(p => p.id === id);
+      pstState.rowError = null;
+      if (act === 'edit' && post) { loadIntoForm(post); return; }
+      if (act === 'approve') { pstState.approvingId = id; pstState.rejectingId = null; renderList(); return; }
+      if (act === 'reject') { pstState.rejectingId = id; pstState.approvingId = null; renderList(); return; }
+      if (act === 'back') { pstState.approvingId = null; pstState.rejectingId = null; renderList(); return; }
+      if (act === 'approve-ok') { runAction(id, 'approve', undefined, post ? post.version : undefined); return; }
+      if (act === 'reject-ok') { const inp = listEl.querySelector('input[data-note="' + id + '"]'); runAction(id, 'reject', inp ? inp.value.trim() : ''); return; }
+      if (act === 'cancel') { runAction(id, 'cancel'); }
+    });
+
+    updateCount();
+    showLoading(listEl);
+    loadList();
+  }
+
+  function pstCardHtml(p, site) {
+    const st = PST_STATUSES.find(s => s[0] === p.status) || [p.status, p.status, 'off'];
+    const plats = (p.platforms || []).map(x => x === 'facebook' ? 'Facebook' : x === 'instagram' ? 'Instagram' : x).join(' + ') || '—';
+    const when = p.scheduledAt ? pstFmtDateTime(p.scheduledAt) : 'Apenas se apruebe';
+    const thumb = p.imageUrl && /^https?:\/\//i.test(p.imageUrl) ? '<img class="pst-thumb" src="' + esc(p.imageUrl) + '" alt="Imagen de la publicación">' : '';
+    let h = '<div class="pst-card"><div class="pst-card-head"><strong>' + esc(plats) + '</strong><span class="pst-pill ' + st[2] + '">' + esc(st[1]) + '</span></div>'
+      + '<div class="pst-card-body">' + thumb + '<div class="pst-msg">' + (esc(metaTrunc(p.message, 280)) || '—') + '</div></div>'
+      + '<div class="pst-meta">Programada: ' + esc(when) + ' · Creada por: ' + esc(pstActor(p.createdBy)) + ' el ' + esc(pstFmtDateTime(p.createdAt))
+      + (p.approvedBy ? ' · Aprobada por: ' + esc(pstActor(p.approvedBy)) + (p.approvedAt ? ' el ' + esc(pstFmtDateTime(p.approvedAt)) : '') : '') + '</div>';
+    if (p.decisionNote) h += '<div class="pst-meta">Nota: ' + esc(p.decisionNote) + '</div>';
+    if (p.lastError) h += '<div class="pst-meta" style="color:var(--poor)">Último error: ' + esc(p.lastError) + '</div>';
+    if (p.status === 'approved' || p.status === 'late') h += '<div class="pst-meta">El publicador automático llega en la Fase 2b.</div>';
+    if (pstState.rowError && pstState.rowError.id === p.id) h += pstErrorHtml(pstState.rowError.err);
+    const id = esc(p.id);
+    const b = (act, label, cls) => '<button class="btn ' + (cls || 'btn-secondary') + '" data-id="' + id + '" data-act="' + act + '" style="padding:6px 12px;font-size:12px">' + label + '</button>';
+    if (pstState.approvingId === p.id) {
+      h += '<div class="pst-confirm">¿Aprobar esta publicación para ' + esc(site.name) + '? Se publicará ' + (p.scheduledAt ? esc(pstFmtDateTime(p.scheduledAt)) : 'apenas se active el publicador') + '.'
+        + '<div class="toolbar" style="margin:8px 0 0">' + b('approve-ok', 'Confirmar', 'btn-primary') + b('back', 'Volver') + '</div></div>';
+    } else if (pstState.rejectingId === p.id) {
+      h += '<div class="pst-confirm"><label style="font-size:12px;color:var(--text-muted)">Motivo del rechazo (opcional)</label>'
+        + '<input type="text" class="pst-note-input" data-note="' + id + '" maxlength="1000" placeholder="Ej.: corregir el texto">'
+        + '<div class="toolbar" style="margin:8px 0 0">' + b('reject-ok', 'Rechazar', 'btn-danger') + b('back', 'Volver') + '</div></div>';
+    } else if (p.status === 'draft') {
+      h += '<div class="toolbar" style="margin:8px 0 0">' + b('edit', 'Editar') + b('approve', 'Aprobar', 'btn-primary') + b('reject', 'Rechazar', 'btn-danger') + b('cancel', 'Cancelar') + '</div>';
+    } else if (p.status === 'approved' || p.status === 'late') {
+      h += '<div class="toolbar" style="margin:8px 0 0">' + b('cancel', 'Cancelar') + '</div>';
+    }
+    return h + '</div>';
+  }
+
   function metaRender() {
     const content = document.getElementById('metaContent');
     const crumbs = document.getElementById('metaCrumbs');
     const site = getActiveSite();
     crumbs.innerHTML = (site ? '<span class="badge-active" style="margin-right:8px">' + esc(site.name) + '</span>' : '') + '<strong>Meta</strong>';
     content.innerHTML = '<div class="sub-tabs"><button class="sub-tab' + (metaState.tab === 'ads' ? ' active' : '') + '" data-sub="ads">Anuncios</button>'
-      + '<button class="sub-tab' + (metaState.tab === 'pages' ? ' active' : '') + '" data-sub="pages">Páginas e Instagram</button></div><div id="metaSub"></div>';
+      + '<button class="sub-tab' + (metaState.tab === 'pages' ? ' active' : '') + '" data-sub="pages">Páginas e Instagram</button>'
+      + '<button class="sub-tab' + (metaState.tab === 'posts' ? ' active' : '') + '" data-sub="posts">Publicaciones</button></div><div id="metaSub"></div>';
     const subEl = content.querySelector('#metaSub');
-    const load = () => (metaState.tab === 'ads' ? metaLoadAds(subEl) : metaLoadPages(subEl));
+    const load = () => (metaState.tab === 'ads' ? metaLoadAds(subEl) : metaState.tab === 'posts' ? metaLoadPosts(subEl) : metaLoadPages(subEl));
     content.querySelectorAll('.sub-tab').forEach(t => {
       t.addEventListener('click', () => {
         content.querySelectorAll('.sub-tab').forEach(x => x.classList.remove('active'));

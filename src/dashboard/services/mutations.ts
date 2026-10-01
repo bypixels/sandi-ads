@@ -39,6 +39,8 @@ export const READ_ONLY_EXCEPTIONS = new Set<string>([
   'fix_clean_sitemap',
   // Generates draft text via the LLM and returns it; never posts to Reddit.
   'reddit_draft_reply',
+  // Stores a local FB/IG draft awaiting admin approval; never calls Meta.
+  'meta_draft_post',
 ]);
 
 /** Service category for a mutating tool name (used for granular env overrides) */

@@ -66,3 +66,37 @@ export async function parseBody(req: IncomingMessage, maxSize: number = DEFAULT_
     req.on('error', reject);
   });
 }
+
+/** Raw binary uploads (post images). Kept separate from the 100KB JSON default. */
+export const MEDIA_MAX_BODY_SIZE = 8 * 1024 * 1024; // 8MB
+
+/**
+ * Read the request body as raw bytes, rejecting once `maxSize` is exceeded.
+ * On overflow the socket is NOT destroyed right away: the rest of the upload is
+ * drained and discarded so the caller's 413 actually reaches the client
+ * (destroying mid-upload makes the client see EPIPE/ECONNRESET instead).
+ * Draining stops, and the socket is cut, past twice the limit.
+ */
+export async function parseRawBody(req: IncomingMessage, maxSize: number = MEDIA_MAX_BODY_SIZE): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    let chunks: Buffer[] = [];
+    let size = 0;
+    let tooLarge = false;
+    req.on('data', (chunk: Buffer) => {
+      size += chunk.length;
+      if (tooLarge) {
+        if (size > maxSize * 2) req.destroy();
+        return;
+      }
+      if (size > maxSize) {
+        tooLarge = true;
+        chunks = [];
+        reject(new Error(`Request body too large (max ${Math.round(maxSize / 1024)}KB)`));
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', reject);
+  });
+}

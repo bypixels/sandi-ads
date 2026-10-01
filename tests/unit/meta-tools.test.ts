@@ -12,6 +12,7 @@ const EXPECTED = [
   'meta_list_page_posts',
   'meta_get_ig_account',
   'meta_list_ig_media',
+  'meta_draft_post',
 ];
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -48,7 +49,7 @@ describe('meta tools', () => {
 
   const lastUrl = () => new URL(String(fetchMock.mock.calls.at(-1)![0]));
 
-  it('registers all 7 meta tools in the global registry', () => {
+  it('registers all 8 meta tools in the global registry', () => {
     registerAllTools();
     for (const n of EXPECTED) expect(toolRegistry.has(n)).toBe(true);
     expect(metaTools.map((t) => t.name).sort()).toEqual([...EXPECTED].sort());
