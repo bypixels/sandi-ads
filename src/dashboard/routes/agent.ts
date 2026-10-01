@@ -81,8 +81,8 @@ export async function handleAgentRoute(
   // GET /api/agent/pending-approvals[?conversationId=X]
   if (pathname === '/api/agent/pending-approvals' && req.method === 'GET') {
     const cid = getParams(req).get('conversationId') || undefined;
-    const siteId = auth.role === 'reviewer'
-      ? getPinnedSiteId() : getParams(req).get('siteId') || undefined;
+    const siteId = getPinnedSiteId()
+      || (auth.role === 'admin' ? getParams(req).get('siteId') || undefined : undefined);
     sendJson(res, { pending: await approvalGate.list({ conversationId: cid, siteId }) });
     return true;
   }

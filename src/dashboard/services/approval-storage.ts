@@ -18,9 +18,10 @@ export const approvalStorage: ApprovalStorage = {
   },
   async list() {
     const result = await getPool().query(`SELECT id, source, action,
-      extract(epoch FROM created_at) * 1000 AS "createdAt" FROM pending_approvals
+      site_id AS "siteId", extract(epoch FROM created_at) * 1000 AS "createdAt",
+      extract(epoch FROM expires_at) * 1000 AS "expiresAt" FROM pending_approvals
       WHERE status = 'pending' AND expires_at > now() ORDER BY created_at`);
-    return result.rows.map(r => ({ ...r, createdAt: Number(r.createdAt) })) as PendingApproval[];
+    return result.rows.map(r => ({ ...r, createdAt: Number(r.createdAt), expiresAt: Number(r.expiresAt) })) as PendingApproval[];
   },
   async decide(id, approve, reason, siteId) {
     if (!siteId) return false;

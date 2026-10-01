@@ -48,3 +48,5 @@ temp/
 .website-ops-credentials.enc.legacy.bak
 .sandi-ads-*.key
 .sandi-ads-credentials.enc.legacy.bak
+.env.bak
+.env.*.bak

@@ -27,19 +27,35 @@ export const MUTATING_TOOLS = new Set<string>([
   'fix_resubmit_sitemap', 'fix_submit_pages_to_index',
 ]);
 
+/**
+ * Fail-closed heuristic: a tool whose name carries a write verb is treated as
+ * mutating even if nobody remembered to add it to MUTATING_TOOLS.
+ */
+export const WRITE_VERB = /_(create|update|delete|publish|submit|add|remove|reply|upload|purge|resubmit|clean|set|pause|enable|activate|send|post)(_|$)/;
+
+/** Tools matching WRITE_VERB that write nothing external (verified by reading each handler). */
+export const READ_ONLY_EXCEPTIONS = new Set<string>([
+  // Only GETs the sitemap and probes URLs; returns cleaned XML for the caller to deploy.
+  'fix_clean_sitemap',
+  // Generates draft text via the LLM and returns it; never posts to Reddit.
+  'reddit_draft_reply',
+]);
+
 /** Service category for a mutating tool name (used for granular env overrides) */
-function categoryFor(toolName: string): string {
+export function categoryFor(toolName: string): string {
   if (toolName.startsWith('gtm_')) return 'gtm';
   if (toolName.startsWith('gbp_')) return 'gbp';
   if (toolName.startsWith('cf_')) return 'cloudflare';
   if (toolName.startsWith('ads_')) return 'ads';
+  if (toolName.startsWith('meta_')) return 'meta';
   if (toolName === 'fix_resubmit_sitemap' || toolName.startsWith('gsc_')) return 'gsc';
   if (toolName === 'fix_submit_pages_to_index' || toolName.startsWith('indexing_')) return 'indexing';
   return 'other';
 }
 
 export function isMutatingTool(toolName: string): boolean {
-  return MUTATING_TOOLS.has(toolName);
+  return MUTATING_TOOLS.has(toolName)
+    || (WRITE_VERB.test(toolName) && !READ_ONLY_EXCEPTIONS.has(toolName));
 }
 
 /**
@@ -65,7 +81,7 @@ export function getMutationsStatus(): {
   autoApprove: string[];
 } {
   const globalEnabled = process.env.MUTATIONS_ENABLED === 'true';
-  const services = ['gtm', 'gbp', 'cloudflare', 'ads', 'gsc', 'indexing'];
+  const services = ['gtm', 'gbp', 'cloudflare', 'ads', 'meta', 'gsc', 'indexing'];
   const perService: Record<string, boolean | null> = {};
   for (const s of services) {
     const v = process.env[`MUTATIONS_${s.toUpperCase()}`];

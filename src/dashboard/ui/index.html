@@ -3520,9 +3520,11 @@
   <section aria-labelledby="pendingApprovalsTitle">
     <div class="action-bar">
       <h2 class="section-title" id="pendingApprovalsTitle" style="margin-bottom:0">Aprobaciones pendientes</h2>
+      <button class="btn-icon" id="approvalsNotifyBtn" type="button">Activar avisos</button>
       <button class="btn-icon" id="approvalsRefreshBtn">Actualizar aprobaciones</button>
     </div>
-    <p style="color:var(--text-muted);margin:0 0 12px;font-size:13px">Solicitudes de MCP, HTTP y agentes. Seleccioná un sitio para filtrar; sin sitio activo se muestran las solicitudes permitidas por tu llave.</p>
+    <p style="color:var(--text-muted);margin:0 0 12px;font-size:13px">Solicitudes de MCP, HTTP y agentes de todos los clientes permitidos por tu llave. Cada solicitud vence a los 5 minutos.</p>
+    <label style="display:inline-flex;align-items:center;gap:6px;margin:0 0 12px;font-size:13px"><input type="checkbox" id="approvalsOnlyActive"> Solo cliente activo</label>
     <div id="pendingApprovalsContent" aria-live="polite"><p>Ingresá la llave del dashboard para consultar solicitudes.</p></div>
   </section>
   <h2 class="section-title">Auditoría</h2>
@@ -3725,12 +3727,14 @@
       const err = await res.json().catch(() => ({ error: res.statusText }));
       const e = new Error(err.error || 'Solicitud falló');
       e.status = res.status;
+      e.code = err.code;
       throw e;
     }
     return res.json();
   }
 
   function isAuthError(err) {
+    if (err.code === 'CREDENTIAL_MISSING' || err.code === 'CREDENTIAL_REJECTED') return true;
     const m = String(err.message || '');
     return /AUTH|credentials|not configured|not authenticated|invalid_grant|developer token/i.test(m);
   }
@@ -3743,7 +3747,7 @@
     if (/DASHBOARD_API_KEY|Unauthorized|Invalid API key/i.test(String(err.message || ''))) {
       container.innerHTML = '<div class="error-msg"><strong>Falta la llave de acceso al dashboard.</strong><p>Reiniciá con <code>pnpm dashboard</code>, ejecutá <code>pnpm dashboard:key</code> en otra terminal y pegá la llave en el campo API Key de la barra lateral. No es una credencial de Google y no necesitás borrar tus credenciales.</p></div>';
     } else if (isAuthError(err)) {
-      container.innerHTML = '<div class="empty-mini"><h3>Sin credenciales o sin acceso</h3><p>' + esc(err.message) + '</p><p style="margin-top:8px"><a id="goSettingsLink">Configurá en Settings →</a></p></div>';
+      container.innerHTML = '<div class="empty-mini"><h3>' + (err.code === 'CREDENTIAL_MISSING' ? 'Falta configurar esta integración en Credenciales' : err.code === 'CREDENTIAL_REJECTED' ? 'La integración rechazó el acceso (permisos o sesión vencida): revísalo en Credenciales' : 'Sin credenciales o sin acceso') + '</h3><p>' + esc(err.message) + '</p><p style="margin-top:8px"><a id="goSettingsLink">Configurá en Settings →</a></p></div>';
       const link = container.querySelector('#goSettingsLink');
       if (link) link.addEventListener('click', gotoSettings);
     } else {
@@ -6350,61 +6354,120 @@
   // ==========================================================================
   let approvalPollBusy = false;
   let pendingApprovalSignature = '';
+  let pendingRows = [];
+  const originalTitle = document.title;
+  const seenApprovalIds = new Set();
+  let approvalsBaselineDone = false;
+  const approvalsOnlyActive = document.getElementById('approvalsOnlyActive');
+  const approvalsNotifyBtn = document.getElementById('approvalsNotifyBtn');
+  try { approvalsOnlyActive.checked = localStorage.getItem('approvals_only_active') === '1'; } catch { /* storage unavailable */ }
+
+  function approvalSiteId(row) { return row.siteId || (row.source && row.source.siteId) || ''; }
+  function approvalClientName(row) {
+    const id = approvalSiteId(row);
+    const site = sitesState.sites.find((s) => s.id === id);
+    return site ? site.name : (id ? id.slice(0, 8) : 'Cliente desconocido');
+  }
+  function formatCountdown(ms) {
+    if (ms <= 0) return 'Vencida';
+    const total = Math.floor(ms / 1000);
+    return 'Vence en ' + Math.floor(total / 60) + ':' + String(total % 60).padStart(2, '0');
+  }
+  function tickApprovalCountdowns() {
+    document.querySelectorAll('[data-expires]').forEach((el) => {
+      const left = Number(el.dataset.expires) - Date.now();
+      el.textContent = formatCountdown(left);
+      el.style.color = left < 60000 ? 'var(--warn)' : '';
+      el.style.fontWeight = left < 60000 ? '600' : '';
+    });
+  }
+  setInterval(tickApprovalCountdowns, 1000);
+
+  function updateApprovalNotifyBtn() {
+    if (typeof Notification === 'undefined') { approvalsNotifyBtn.style.display = 'none'; return; }
+    approvalsNotifyBtn.textContent = Notification.permission === 'granted' ? 'Avisos activados' : 'Activar avisos';
+    approvalsNotifyBtn.disabled = Notification.permission === 'granted' || Notification.permission === 'denied';
+    if (Notification.permission === 'denied') approvalsNotifyBtn.title = 'Los avisos están bloqueados en la configuración del navegador.';
+  }
+  approvalsNotifyBtn.addEventListener('click', async () => {
+    if (typeof Notification === 'undefined') return;
+    try { await Notification.requestPermission(); } catch { /* ignored */ }
+    updateApprovalNotifyBtn();
+  });
+  updateApprovalNotifyBtn();
+
+  function notifyNewApprovals(pending) {
+    const fresh = pending.filter((row) => !seenApprovalIds.has(row.id));
+    pending.forEach((row) => seenApprovalIds.add(row.id));
+    if (!approvalsBaselineDone) { approvalsBaselineDone = true; return; }
+    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+    fresh.forEach((row) => {
+      try { new Notification('Aprobación pendiente', { body: approvalClientName(row) + ': ' + row.action.tool }); } catch { /* ignored */ }
+    });
+  }
+
+  function renderPendingApprovals(container) {
+    const onlyActive = approvalsOnlyActive.checked && sitesState.activeId;
+    const visible = onlyActive ? pendingRows.filter((row) => approvalSiteId(row) === sitesState.activeId) : pendingRows;
+    if (!visible.length) {
+      container.innerHTML = '<div class="empty-mini" style="padding:20px;margin-bottom:20px"><p>No hay solicitudes pendientes' + (onlyActive ? ' para el cliente activo' : '') + '.</p></div>';
+      return;
+    }
+    container.innerHTML = visible.map((row, index) => {
+      return '<div class="settings-group"><h3>' + esc(row.action.tool) + '</h3>' +
+        '<p>Cliente: <strong>' + esc(approvalClientName(row)) + '</strong> · Origen: ' + esc(row.source.kind) +
+        ' · Solicitado: ' + esc(new Date(row.createdAt).toLocaleString()) +
+        (row.expiresAt ? ' · <span data-expires="' + Number(row.expiresAt) + '"></span>' : '') + '</p>' +
+        '<details><summary>Revisar argumentos</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">' + esc(JSON.stringify(row.action.input, null, 2)) + '</pre></details>' +
+        '<div class="settings-actions"><button type="button" class="btn btn-secondary" data-pending-index="' + index + '" data-pending-approve="false">Rechazar</button>' +
+        '<button type="button" class="btn btn-primary" data-pending-index="' + index + '" data-pending-approve="true">Aprobar y ejecutar</button></div></div>';
+    }).join('');
+    tickApprovalCountdowns();
+    container.querySelectorAll('[data-pending-index]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        const row = visible[Number(button.dataset.pendingIndex)];
+        const approve = button.dataset.pendingApprove === 'true';
+        if (approve && !confirm('¿Aprobar ' + row.action.tool + ' para ' + approvalClientName(row) + '?')) return;
+        button.disabled = true;
+        try {
+          // Always the approval's own client, never the active one.
+          const res = await fetch('/api/agent/approve', {
+            method: 'POST', headers: authHeaders(),
+            body: JSON.stringify({ toolUseId: row.id, approve, siteId: approvalSiteId(row) }),
+          });
+          const decision = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(decision.error || 'No se pudo enviar la decisión.');
+          pendingApprovalSignature = '';
+          await loadPendingApprovals();
+        } catch (err) {
+          button.disabled = false;
+          alert('No se pudo enviar la decisión: ' + err.message);
+        }
+      });
+    });
+  }
+
   async function loadPendingApprovals() {
     if (approvalPollBusy) return;
     const container = document.getElementById('pendingApprovalsContent');
     if (!apiKeyInput.value.trim()) return;
     approvalPollBusy = true;
     try {
-      const siteId = sitesState.activeId || '';
-      const query = siteId ? '?siteId=' + encodeURIComponent(siteId) : '';
-      const res = await fetch('/api/agent/pending-approvals' + query, { headers: authHeaders() });
+      // No siteId: the inbox shows every client (reviewers stay pinned server-side).
+      const res = await fetch('/api/agent/pending-approvals', { headers: authHeaders() });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || 'No se pudieron consultar las aprobaciones.');
-      // Ignore a response to an old site selection.
-      if (siteId !== (sitesState.activeId || '')) return;
       const pending = data.pending || [];
+      pendingRows = pending;
       const badge = document.getElementById('approvalsBadge');
       badge.textContent = pending.length;
       badge.style.display = pending.length ? '' : 'none';
-      const signature = JSON.stringify({ siteId, pending });
+      document.title = pending.length ? '(' + pending.length + ') ' + originalTitle : originalTitle;
+      notifyNewApprovals(pending);
+      const signature = JSON.stringify({ only: approvalsOnlyActive.checked, active: sitesState.activeId || '', sites: sitesState.sites.length, pending });
       if (signature === pendingApprovalSignature) return;
       pendingApprovalSignature = signature;
-      if (!pending.length) {
-        container.innerHTML = '<div class="empty-mini" style="padding:20px;margin-bottom:20px"><p>No hay solicitudes pendientes para este filtro.</p></div>';
-        return;
-      }
-      container.innerHTML = pending.map((row, index) => {
-        const site = sitesState.sites.find((s) => s.id === row.source.siteId);
-        return '<div class="settings-group"><h3>' + esc(row.action.tool) + '</h3>' +
-          '<p>Cliente: <strong>' + esc(site ? site.name : row.source.siteId) + '</strong> · Origen: ' + esc(row.source.kind) +
-          ' · Solicitado: ' + esc(new Date(row.createdAt).toLocaleString()) + '</p>' +
-          '<details><summary>Revisar argumentos</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">' + esc(JSON.stringify(row.action.input, null, 2)) + '</pre></details>' +
-          '<div class="settings-actions"><button type="button" class="btn btn-secondary" data-pending-index="' + index + '" data-pending-approve="false">Rechazar</button>' +
-          '<button type="button" class="btn btn-primary" data-pending-index="' + index + '" data-pending-approve="true">Aprobar y ejecutar</button></div></div>';
-      }).join('');
-      container.querySelectorAll('[data-pending-index]').forEach((button) => {
-        button.addEventListener('click', async () => {
-          const row = pending[Number(button.dataset.pendingIndex)];
-          const approve = button.dataset.pendingApprove === 'true';
-          const site = sitesState.sites.find((s) => s.id === row.source.siteId);
-          if (approve && !confirm('¿Aprobar ' + row.action.tool + ' para ' + (site ? site.name : row.source.siteId) + '?')) return;
-          button.disabled = true;
-          try {
-            const res = await fetch('/api/agent/approve', {
-              method: 'POST', headers: authHeaders(),
-              body: JSON.stringify({ toolUseId: row.id, approve, siteId: row.source.siteId }),
-            });
-            const decision = await res.json().catch(() => ({}));
-            if (!res.ok) throw new Error(decision.error || 'No se pudo enviar la decisión.');
-            pendingApprovalSignature = '';
-            await loadPendingApprovals();
-          } catch (err) {
-            button.disabled = false;
-            alert('No se pudo enviar la decisión: ' + err.message);
-          }
-        });
-      });
+      renderPendingApprovals(container);
     } catch (err) {
       pendingApprovalSignature = '';
       showError(container, err);
@@ -6412,6 +6475,11 @@
       approvalPollBusy = false;
     }
   }
+  approvalsOnlyActive.addEventListener('change', () => {
+    try { localStorage.setItem('approvals_only_active', approvalsOnlyActive.checked ? '1' : '0'); } catch { /* storage unavailable */ }
+    pendingApprovalSignature = '';
+    renderPendingApprovals(document.getElementById('pendingApprovalsContent'));
+  });
   document.getElementById('approvalsRefreshBtn').addEventListener('click', () => {
     pendingApprovalSignature = '';
     loadPendingApprovals();

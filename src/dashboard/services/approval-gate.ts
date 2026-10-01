@@ -10,6 +10,8 @@ export interface ApprovalAction { tool: string; input: unknown }
 export interface ApprovalDecision { approve: boolean; reason?: string }
 export interface PendingApproval {
   id: string; source: ApprovalSource; action: ApprovalAction; createdAt: number;
+  /** Present on items listed from storage (ms epoch). */
+  siteId?: string; expiresAt?: number;
 }
 
 export function createApprovalGate(storage: ApprovalStorage, options: { timeoutMs?: number; pollMs?: number } = {}) {

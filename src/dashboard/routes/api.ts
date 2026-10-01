@@ -178,6 +178,12 @@ export async function handleApiRoute(
     }
     if (guarded.status === 'error') {
       const msg = guarded.error ?? 'Tool execution failed';
+      if (guarded.errorDetails?.code.startsWith('AUTH_')) {
+        const rejected = guarded.errorDetails.code === ErrorCode.AUTH_INSUFFICIENT_SCOPE
+          || guarded.errorDetails.code === ErrorCode.AUTH_TOKEN_EXPIRED;
+        sendJson(res, { error: msg, code: rejected ? 'CREDENTIAL_REJECTED' : 'CREDENTIAL_MISSING' }, 424);
+        return true;
+      }
       // 400 for known MCP/validation errors; 500 for everything else.
       const status = guarded.errorDetails?.code === ErrorCode.INVALID_PARAMS
         || guarded.errorDetails?.code === ErrorCode.NOT_IMPLEMENTED ? 400 : 500;
