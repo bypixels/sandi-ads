@@ -186,3 +186,97 @@ describe('socialPostsStore', () => {
     expect(m.fake.rows.size).toBe(0);
   });
 });
+
+describe('socialPostsStore — after the publisher', () => {
+  const put = (id: string, fields: Record<string, unknown>) => Object.assign(m.fake.rows.get(id)!, fields);
+
+  it('publishNow: late → approved without schedule, guarded by site, status and version; audited', async () => {
+    const p = await draft({ scheduledAt: Date.now() + 10 * 60_000 });
+    put(p.id, { status: 'late', version: 4, last_error: 'tarde' });
+    expect(await socialPostsStore.publishNow(p.id, siteB, 4, 'admin')).toBeNull();
+    await expect(socialPostsStore.publishNow(p.id, siteA, 3, 'admin')).rejects.toBeInstanceOf(SocialPostConflictError);
+    const r = await socialPostsStore.publishNow(p.id, siteA, 4, 'admin');
+    expect(r).toMatchObject({ status: 'approved', scheduledAt: null, version: 5, lastError: null });
+    expect(m.append).toHaveBeenLastCalledWith(expect.objectContaining({
+      tool: 'social_post_publish_now', siteId: siteA, input: expect.objectContaining({ postId: p.id, actor: 'admin' }),
+    }));
+    expect(await socialPostsStore.publishNow(p.id, siteA, 5, 'admin')).toBeNull();
+  });
+
+  it('retry: failed → approved keeping remote ids; refuses other statuses', async () => {
+    const p = await draft();
+    put(p.id, { status: 'failed', remote_ids: { facebook: '111_1' } });
+    expect(await socialPostsStore.retry(p.id, siteA, p.version, 'admin')).toMatchObject({ status: 'approved', remoteIds: { facebook: '111_1' } });
+    expect(m.append).toHaveBeenLastCalledWith(expect.objectContaining({ tool: 'social_post_retry' }));
+    put(p.id, { status: 'published' });
+    expect(await socialPostsStore.retry(p.id, siteA, p.version + 1, 'admin')).toBeNull();
+  });
+
+  it('resolve: needs_review → published (merging remote ids) or → approved', async () => {
+    const p = await draft({ platforms: ['facebook'] });
+    put(p.id, { status: 'needs_review', remote_ids: { facebook: '111_1' } });
+    const done = await socialPostsStore.resolve(p.id, siteA, p.version, 'published', 'admin', { facebook: '111_2' });
+    expect(done).toMatchObject({ status: 'published', remoteIds: { facebook: '111_2' } });
+    expect(m.append).toHaveBeenLastCalledWith(expect.objectContaining({
+      tool: 'social_post_resolve', input: expect.objectContaining({ outcome: 'published', actor: 'admin' }),
+    }));
+    const q = await draft({ scheduledAt: Date.now() + 10 * 60_000 });
+    put(q.id, { status: 'needs_review' });
+    expect(await socialPostsStore.resolve(q.id, siteA, q.version, 'not_published', 'admin')).toMatchObject({ status: 'approved', scheduledAt: null });
+    expect(await socialPostsStore.resolve(q.id, siteA, q.version + 1, 'published', 'admin')).toBeNull();
+  });
+
+  it('resolve refuses remote ids for platforms the post does not have or with a bad shape', async () => {
+    const p = await draft({ platforms: ['facebook'] });
+    put(p.id, { status: 'needs_review' });
+    await expect(socialPostsStore.resolve(p.id, siteA, p.version, 'published', 'admin', { instagram: '1' })).rejects.toBeInstanceOf(SocialPostValidationError);
+    await expect(socialPostsStore.resolve(p.id, siteA, p.version, 'published', 'admin', { facebook: '1/../x' })).rejects.toBeInstanceOf(SocialPostValidationError);
+    expect(m.fake.rows.get(p.id)!.status).toBe('needs_review');
+  });
+
+  it('human recovery UPDATEs are guarded in SQL by site_id, status and version', async () => {
+    const p = await draft();
+    put(p.id, { status: 'late' });
+    m.fake.statements.length = 0;
+    await socialPostsStore.publishNow(p.id, siteA, p.version, 'admin');
+    const sql = m.fake.statements.find(s => s.trim().startsWith('UPDATE social_posts SET status = $4::text, scheduled_at'))!;
+    expect(sql).toContain('site_id = $2');
+    expect(sql).toContain('status = $3');
+    expect(sql).toContain('version = $5');
+  });
+});
+
+describe('socialPostsStore — publisher lease failures', () => {
+  it('a lost session invalidates the lease, destroys the connection and frees the lock', async () => {
+    const session = await m.fake.pool.connect();
+    const release = vi.spyOn(session, 'release');
+    const connect = vi.spyOn(m.fake.pool, 'connect').mockResolvedValueOnce(session);
+    try {
+      await socialPostsStore.withPublisherLock(async isHeld => {
+        expect(await isHeld()).toBe(true);
+        session.emit('error', new Error('connection lost'));
+        expect(await isHeld()).toBe(false);
+      });
+      expect(release).toHaveBeenCalledWith(true);
+      expect(await socialPostsStore.withPublisherLock(async () => {})).toBe(true);
+    } finally { connect.mockRestore(); }
+  });
+
+  it('destroys a connection when the lock acknowledgement fails, even if the server acquired it', async () => {
+    const session = await m.fake.pool.connect();
+    const originalQuery = session.query.bind(session);
+    vi.spyOn(session, 'query').mockImplementationOnce(async config => {
+      await originalQuery(config);
+      throw new Error('lock acknowledgement timed out');
+    });
+    const release = vi.spyOn(session, 'release');
+    const connect = vi.spyOn(m.fake.pool, 'connect').mockResolvedValueOnce(session);
+    const work = vi.fn(async () => {});
+    try {
+      await expect(socialPostsStore.withPublisherLock(work)).rejects.toThrow('acknowledgement');
+      expect(work).not.toHaveBeenCalled();
+      expect(release).toHaveBeenCalledWith(true);
+      expect(await socialPostsStore.withPublisherLock(async () => {})).toBe(true);
+    } finally { connect.mockRestore(); }
+  });
+});

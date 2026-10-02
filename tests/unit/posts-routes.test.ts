@@ -64,6 +64,7 @@ describe('posts routes — reviewer is denied everywhere', () => {
     ['GET', `/api/posts?siteId=${siteA}`], ['POST', '/api/posts'], ['PATCH', `/api/posts/${postId}`],
     ['POST', `/api/posts/${postId}/approve`], ['POST', `/api/posts/${postId}/reject`],
     ['POST', `/api/posts/${postId}/cancel`], ['POST', `/api/media?siteId=${siteA}`],
+    ['POST', `/api/posts/${postId}/publish-now`], ['POST', `/api/posts/${postId}/retry`], ['POST', `/api/posts/${postId}/resolve`],
   ])('reviewer %s %s → 403 without touching storage', async (method, url) => {
     let status: number | undefined;
     const res = { setHeader: vi.fn(), writeHead: vi.fn((c: number) => { status = c; }), end: vi.fn() } as unknown as ServerResponse;
@@ -183,6 +184,58 @@ describe('posts routes — admin', () => {
     const c = await call('POST', `/api/media?siteId=${siteA}`, Buffer.from([1]), { 'content-type': 'image/jpeg' });
     expect(c.status).toBe(424);
     expect(c.body.code).toBe('CREDENTIAL_MISSING');
+  });
+});
+
+describe('posts routes — after the publisher', () => {
+  const create = async (status: string, extra: Record<string, unknown> = {}) => {
+    const { body } = await call('POST', '/api/posts', { siteId: siteA, platforms: ['facebook'], message: 'Hola' });
+    Object.assign(m.fake.rows.get(body.post.id)!, { status, ...extra });
+    return m.fake.rows.get(body.post.id)!;
+  };
+
+  it('publish-now: late → approved with no schedule', async () => {
+    const p = await create('late', { scheduled_at: new Date(Date.now() - 3_600_000) });
+    const r = await call('POST', `/api/posts/${p.id}/publish-now`, { siteId: siteA, version: p.version });
+    expect(r.status).toBe(200);
+    expect(r.body.post).toMatchObject({ status: 'approved', scheduledAt: null });
+  });
+  it('retry: failed → approved keeping remoteIds; wrong status → 404', async () => {
+    const p = await create('failed', { remote_ids: { facebook: '111_1' } });
+    const r = await call('POST', `/api/posts/${p.id}/retry`, { siteId: siteA, version: p.version });
+    expect(r.body.post).toMatchObject({ status: 'approved', remoteIds: { facebook: '111_1' } });
+    expect((await call('POST', `/api/posts/${p.id}/retry`, { siteId: siteA, version: p.version })).status).toBe(404);
+  });
+  it('resolve: needs_review → published or approved; outcome and version are required (Spanish 400)', async () => {
+    const p = await create('needs_review');
+    for (const body of [{ siteId: siteA, version: p.version }, { siteId: siteA, outcome: 'maybe', version: p.version }, { siteId: siteA, outcome: 'published' }]) {
+      const r = await call('POST', `/api/posts/${p.id}/resolve`, body);
+      expect(r.status).toBe(400);
+      expect(r.body.details.length).toBeGreaterThan(0);
+    }
+    const bad = await call('POST', `/api/posts/${p.id}/resolve`, { siteId: siteA, version: p.version, outcome: 'published', remoteIds: 'x' });
+    expect(bad.status).toBe(400);
+    const r = await call('POST', `/api/posts/${p.id}/resolve`, { siteId: siteA, version: p.version, outcome: 'published', remoteIds: { facebook: '111_5' } });
+    expect(r.body.post).toMatchObject({ status: 'published', remoteIds: { facebook: '111_5' } });
+    const q = await create('needs_review');
+    expect((await call('POST', `/api/posts/${q.id}/resolve`, { siteId: siteA, version: q.version, outcome: 'not_published' })).body.post.status).toBe('approved');
+  });
+  it('a stale version → 409 in Spanish; another site → 404', async () => {
+    const p = await create('late');
+    const stale = await call('POST', `/api/posts/${p.id}/publish-now`, { siteId: siteA, version: p.version - 1 });
+    expect(stale.status).toBe(409);
+    expect(stale.body.error).toBe('La publicación cambió desde que la revisaste; revísala de nuevo.');
+    expect((await call('POST', `/api/posts/${p.id}/publish-now`, { siteId: siteB, version: p.version })).status).toBe(404);
+    expect((await call('POST', `/api/posts/${p.id}/publish-now`, { siteId: siteA })).status).toBe(400);
+    expect(m.fake.rows.get(p.id)!.status).toBe('late');
+  });
+  it('a pinned server refuses another client for the new actions', async () => {
+    const p = await create('late');
+    vi.stubEnv('SANDI_ADS_SITE_ID', siteA);
+    for (const action of ['publish-now', 'retry', 'resolve']) {
+      expect((await call('POST', `/api/posts/${p.id}/${action}`, { siteId: siteB, version: p.version, outcome: 'published' })).status).toBe(403);
+    }
+    expect((await call('POST', `/api/posts/${p.id}/publish-now`, { version: p.version })).body.post.status).toBe('approved');
   });
 });
 

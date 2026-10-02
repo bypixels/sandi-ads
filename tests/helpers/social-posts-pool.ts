@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { EventEmitter } from 'node:events';
 
 /**
  * In-memory stand-in for the pg pool used by social-posts-store. It interprets
@@ -19,6 +20,7 @@ export function createFakePostsPool() {
   const rows = new Map<string, FakePostRow>();
   const statements: string[] = [];
   const clone = (r: FakePostRow) => structuredClone(r);
+  let lockOwner: object | null = null;
 
   async function query(sql: string, params: unknown[] = []) {
     statements.push(sql);
@@ -34,6 +36,63 @@ export function createFakePostsPool() {
         version: 1, publishing_started_at: null, created_at: now, updated_at: now,
       };
       rows.set(row.id, row);
+      return { rows: [clone(row)], rowCount: 1 };
+    }
+    if (s.startsWith("UPDATE social_posts SET status = 'publishing'")) {
+      // claimNext: the subquery guard and the outer guard are honored only when present in the SQL,
+      // so a statement that drops them is caught by the tests instead of being silently "fixed" here.
+      const now = Number(params[0]);
+      const innerGuard = /FROM social_posts WHERE status = 'approved'/.test(s);
+      const outerGuard = /WHERE status = 'approved' AND id =/.test(s);
+      const siteId = s.includes('site_id = $2') ? params[1] : null;
+      const order = (r: FakePostRow) => (r.scheduled_at ?? r.approved_at ?? r.created_at).getTime();
+      const pick = [...rows.values()]
+        .filter(r => (!innerGuard || r.status === 'approved') && (siteId == null || r.site_id === siteId)
+          && (r.scheduled_at == null || r.scheduled_at.getTime() <= now))
+        .sort((a, b) => order(a) - order(b) || a.created_at.getTime() - b.created_at.getTime())[0];
+      if (!pick || (outerGuard && pick.status !== 'approved')) return { rows: [], rowCount: 0 };
+      Object.assign(pick, { status: 'publishing', publishing_started_at: new Date(now), version: pick.version + 1, updated_at: new Date() });
+      return { rows: [clone(pick)], rowCount: 1 };
+    }
+    if (s.startsWith("UPDATE social_posts SET status = 'needs_review'")) {
+      const [lastError, cutoff] = params as [string, number | null];
+      const siteId = s.includes('site_id = $3') ? params[2] : null;
+      const hit = [...rows.values()].filter(r => r.status === 'publishing'
+        && (siteId == null || r.site_id === siteId)
+        && (cutoff == null || r.publishing_started_at == null || r.publishing_started_at.getTime() < Number(cutoff)));
+      for (const r of hit) Object.assign(r, { status: 'needs_review', last_error: lastError, version: r.version + 1, updated_at: new Date() });
+      return { rows: hit.map(clone), rowCount: hit.length };
+    }
+    if (s.startsWith("UPDATE social_posts SET status = 'late'")) {
+      const [lastError, cutoff] = params as [string, number];
+      const siteId = s.includes('site_id = $3') ? params[2] : null;
+      const hit = [...rows.values()].filter(r => r.status === 'approved' && (siteId == null || r.site_id === siteId)
+        && r.scheduled_at != null && r.scheduled_at.getTime() < Number(cutoff));
+      for (const r of hit) Object.assign(r, { status: 'late', last_error: lastError, version: r.version + 1, updated_at: new Date() });
+      return { rows: hit.map(clone), rowCount: hit.length };
+    }
+    if (s.startsWith('UPDATE social_posts SET remote_ids')) {
+      const [id, siteId, version, patch] = params as [string, string, number, string];
+      const row = rows.get(id);
+      if (!row || row.site_id !== siteId || row.status !== 'publishing' || row.version !== version) return { rows: [], rowCount: 0 };
+      Object.assign(row, { remote_ids: { ...row.remote_ids, ...JSON.parse(patch) }, updated_at: new Date() });
+      return { rows: [clone(row)], rowCount: 1 };
+    }
+    if (s.startsWith('UPDATE social_posts SET status = $4::text, last_error')) {
+      const [id, siteId, version, to, lastError] = params as [string, string, number, string, string | null];
+      const row = rows.get(id);
+      if (!row || row.site_id !== siteId || row.status !== 'publishing' || row.version !== version) return { rows: [], rowCount: 0 };
+      Object.assign(row, { status: to, last_error: lastError, version: row.version + 1, updated_at: new Date() });
+      return { rows: [clone(row)], rowCount: 1 };
+    }
+    if (s.startsWith('UPDATE social_posts SET status = $4::text, scheduled_at')) {
+      const [id, siteId, from, to, version, patch] = params as [string, string, string, string, number, string];
+      const row = rows.get(id);
+      if (!row || row.site_id !== siteId || row.status !== from || row.version !== version) return { rows: [], rowCount: 0 };
+      Object.assign(row, {
+        status: to, scheduled_at: to === 'approved' ? null : row.scheduled_at, remote_ids: { ...row.remote_ids, ...JSON.parse(patch) },
+        last_error: null, version: row.version + 1, updated_at: new Date(),
+      });
       return { rows: [clone(row)], rowCount: 1 };
     }
     if (s.startsWith('UPDATE social_posts SET status')) {
@@ -74,5 +133,26 @@ export function createFakePostsPool() {
     throw new Error(`Fake pool: unexpected SQL ${s.slice(0, 60)}`);
   }
 
-  return { rows, statements, pool: { query } };
+  async function connect() {
+    const session = new EventEmitter();
+    return Object.assign(session, {
+      query: async (config: { text: string }) => {
+        const sql = config.text;
+        statements.push(sql);
+        if (sql.includes('pg_try_advisory_lock')) {
+          const acquired = lockOwner === null;
+          if (acquired) lockOwner = session;
+          return { rows: [{ acquired }] };
+        }
+        if (sql.includes('pg_advisory_unlock')) {
+          if (lockOwner === session) lockOwner = null;
+          return { rows: [] };
+        }
+        if (sql === 'SELECT 1') return { rows: [{ ok: 1 }] };
+        throw new Error(`Unexpected session query: ${sql}`);
+      },
+      release: () => { if (lockOwner === session) lockOwner = null; },
+    });
+  }
+  return { rows, statements, pool: { query, connect } };
 }

@@ -1,12 +1,13 @@
 /**
  * Social posts store — own publishing queue for Facebook + Instagram.
  *
- * Phase 2a: drafts + durable human approval only; nothing here talks to Meta.
+ * Nothing here talks to Meta: services/social-publisher.ts does, through the
+ * publisher-only methods below (claimNext … finishPublishing).
  *
- *   draft ──▶ approved ──▶ (2b worker: publishing → published | failed | needs_review)
- *     │          │
- *     ├──▶ rejected         late ──▶ cancelled
- *     └──▶ cancelled ◀──────┘
+ *   draft ──▶ approved ──▶ publishing ──▶ published | failed | needs_review
+ *     │          │  ▲ └──▶ late (due while the publisher was off)
+ *     ├──▶ rejected  └── publish-now (late) · retry (failed) · resolve not_published (needs_review)
+ *     └──▶ cancelled ◀── draft | approved | late       resolve published: needs_review ──▶ published
  *
  * Every transition is a single UPDATE guarded by `site_id` and the allowed
  * source statuses, so two concurrent decisions can't both win. `FROM_STATUSES`
@@ -17,6 +18,9 @@ import { createHash } from 'node:crypto';
 import { getPool } from '../../db/index.js';
 import { sitesStore, type SiteBindings } from './sites-store.js';
 import { auditLog } from './audit-log.js';
+
+// One shared queue: even pinned and unpinned instances must not recover each other's live work.
+const PUBLISHER_LOCK = [1935765092, 1886741100] as const;
 
 export type PostPlatform = 'facebook' | 'instagram';
 export type PostStatus = 'draft' | 'approved' | 'rejected' | 'cancelled' | 'publishing' | 'published' | 'failed' | 'needs_review' | 'late';
@@ -132,6 +136,17 @@ const FROM_STATUSES = {
 } satisfies Record<string, PostStatus[]>;
 
 type Decision = keyof typeof FROM_STATUSES;
+
+/** Human actions after the publisher ran: one source and one target status each. */
+const RECOVERY = {
+  publish_now: { from: 'late', to: 'approved' },
+  retry: { from: 'failed', to: 'approved' },
+  resolve_published: { from: 'needs_review', to: 'published' },
+  resolve_not_published: { from: 'needs_review', to: 'approved' },
+} satisfies Record<string, { from: PostStatus; to: PostStatus }>;
+
+type Recovery = keyof typeof RECOVERY;
+const REMOTE_ID_RE = /^\d+(_\d+)?$/;
 const DECISION_TARGET: Record<Decision, PostStatus> = { approve: 'approved', reject: 'rejected', cancel: 'cancelled' };
 
 interface PostRow {
@@ -179,7 +194,10 @@ function contentSnapshot(post: SocialPost) {
   };
 }
 
-function audit(action: Decision | 'create' | 'update', post: SocialPost, actor: string, note?: string): Promise<void> {
+function audit(
+  action: Decision | 'create' | 'update' | 'publish_now' | 'retry' | 'resolve', post: SocialPost, actor: string, note?: string,
+  extra: Record<string, unknown> = {},
+): Promise<void> {
   return auditLog.append({
     timestamp: new Date().toISOString(),
     tool: `social_post_${action}`,
@@ -188,6 +206,7 @@ function audit(action: Decision | 'create' | 'update', post: SocialPost, actor: 
       postId: post.id, action, actor, platforms: post.platforms,
       ...(action === 'approve' || action === 'update' ? { snapshot: contentSnapshot(post) } : {}),
       ...(note ? { note } : {}),
+      ...extra,
     },
     status: 'success',
     durationMs: 0,
@@ -231,6 +250,31 @@ async function decide(
   }
   const post = rowToPost(r.rows[0]);
   await audit(decision, post, actor, note);
+  return post;
+}
+
+/**
+ * Human transition after the publisher (version required: the one the admin saw).
+ * Leaving to 'approved' clears the schedule, so the post is due now and never re-marked late.
+ */
+async function recover(
+  kind: Recovery, id: string, siteId: string, expectedVersion: number, actor: string, remoteIds: Record<string, string> = {},
+): Promise<SocialPost | null> {
+  const { from, to } = RECOVERY[kind];
+  const r = await getPool().query<PostRow>(
+    `UPDATE social_posts SET status = $4::text, scheduled_at = CASE WHEN $4::text = 'approved' THEN NULL ELSE scheduled_at END,
+       remote_ids = remote_ids || $6::jsonb, last_error = NULL, version = version + 1, updated_at = now()
+     WHERE id = $1 AND site_id = $2 AND status = $3::text AND version = $5::integer RETURNING *`,
+    [id, siteId, from, to, expectedVersion, JSON.stringify(remoteIds)],
+  );
+  if (!r.rows[0]) {
+    const now = await get(id);
+    if (now && now.siteId === siteId && now.status === from && now.version !== expectedVersion) throw new SocialPostConflictError();
+    return null;
+  }
+  const post = rowToPost(r.rows[0]);
+  const action = kind.startsWith('resolve') ? 'resolve' : kind as 'publish_now' | 'retry';
+  await audit(action, post, actor, undefined, action === 'resolve' ? { outcome: kind.slice('resolve_'.length), remoteIds } : {});
   return post;
 }
 
@@ -290,4 +334,138 @@ export const socialPostsStore = {
     decide('approve', id, siteId, approvedBy, note, expectedVersion),
   reject: (id: string, siteId: string, by: string, note?: string) => decide('reject', id, siteId, by, note),
   cancel: (id: string, siteId: string, by: string) => decide('cancel', id, siteId, by),
+
+  /** late → approved, due now. */
+  publishNow: (id: string, siteId: string, version: number, by: string) => recover('publish_now', id, siteId, version, by),
+  /** failed → approved; remote ids are kept so the publisher skips platforms already published. */
+  retry: (id: string, siteId: string, version: number, by: string) => recover('retry', id, siteId, version, by),
+
+  /** needs_review → published (the admin confirmed it in Meta) or → approved (it was not published). */
+  async resolve(
+    id: string, siteId: string, version: number, outcome: 'published' | 'not_published', by: string, remoteIds: Record<string, string> = {},
+  ): Promise<SocialPost | null> {
+    const current = await get(id);
+    if (!current || current.siteId !== siteId) return null;
+    const errors: string[] = [];
+    for (const [platform, remoteId] of Object.entries(remoteIds)) {
+      if (!current.platforms.includes(platform as PostPlatform)) errors.push(`La publicación no incluye la plataforma ${platform}.`);
+      else if (typeof remoteId !== 'string' || !REMOTE_ID_RE.test(remoteId)) errors.push(`El identificador de ${platform} no es válido.`);
+    }
+    if (errors.length > 0) throw new SocialPostValidationError(errors);
+    return recover(outcome === 'published' ? 'resolve_published' : 'resolve_not_published', id, siteId, version, by, remoteIds);
+  },
+
+  // ── Publisher only (services/social-publisher.ts). Times come from the caller's clock. ──
+
+  /** Hold a session lock for the whole turn, including recovery and external writes. */
+  async withPublisherLock(work: (isHeld: () => Promise<boolean>) => Promise<void>): Promise<boolean> {
+    const client = await getPool().connect();
+    // Supported by pg at runtime but absent from @types/pg's per-query interface.
+    const queryDeadline = { query_timeout: 5000 };
+    let alive = true;
+    let acquired = false;
+    const onError = () => { alive = false; };
+    client.on('error', onError);
+    try {
+      const lock = await client.query<{ acquired: boolean }>({
+        text: 'SELECT pg_try_advisory_lock($1::integer, $2::integer) AS acquired',
+        values: [...PUBLISHER_LOCK], ...queryDeadline,
+      }).catch((err: unknown) => {
+        // The server may have acquired the lock even if its acknowledgement was lost.
+        alive = false;
+        throw err;
+      });
+      acquired = lock.rows[0]?.acquired === true;
+      if (!acquired) return false;
+      await work(async () => {
+        if (!alive) return false;
+        try {
+          await client.query({ text: 'SELECT 1', ...queryDeadline });
+          return alive;
+        } catch {
+          alive = false;
+          return false;
+        }
+      });
+      return true;
+    } finally {
+      if (acquired && alive) {
+        try {
+          await client.query({
+            text: 'SELECT pg_advisory_unlock($1::integer, $2::integer)',
+            values: [...PUBLISHER_LOCK], ...queryDeadline,
+          });
+        } catch { alive = false; }
+      }
+      client.removeListener('error', onError);
+      // Never return a connection with a possibly-held session lock to the pool.
+      client.release(!alive);
+    }
+  },
+
+  async isPublishing(post: SocialPost): Promise<boolean> {
+    const current = await get(post.id);
+    return current?.siteId === post.siteId && current.status === 'publishing' && current.version === post.version;
+  },
+
+  /** Atomically takes the next due approved post; concurrent callers never get the same row. */
+  async claimNext(nowMs: number, siteId: string | null = null): Promise<SocialPost | null> {
+    const r = await getPool().query<PostRow>(
+      `UPDATE social_posts SET status = 'publishing', publishing_started_at = to_timestamp($1::double precision / 1000.0),
+         version = version + 1, updated_at = now()
+       WHERE status = 'approved' AND id = (
+         SELECT id FROM social_posts WHERE status = 'approved'
+           AND ($2::uuid IS NULL OR site_id = $2)
+           AND (scheduled_at IS NULL OR scheduled_at <= to_timestamp($1::double precision / 1000.0))
+         ORDER BY coalesce(scheduled_at, approved_at), created_at LIMIT 1 FOR UPDATE SKIP LOCKED)
+       RETURNING *`,
+      [nowMs, siteId],
+    );
+    return r.rows[0] ? rowToPost(r.rows[0]) : null;
+  },
+
+  /** publishing → needs_review for posts started before the cutoff (null = all of them). */
+  async recoverInterrupted(startedBeforeMs: number | null, lastError: string, siteId: string | null = null): Promise<SocialPost[]> {
+    const r = await getPool().query<PostRow>(
+      `UPDATE social_posts SET status = 'needs_review', last_error = $1, version = version + 1, updated_at = now()
+       WHERE status = 'publishing' AND ($3::uuid IS NULL OR site_id = $3)
+         AND ($2::double precision IS NULL OR publishing_started_at IS NULL
+         OR publishing_started_at < to_timestamp($2::double precision / 1000.0)) RETURNING *`,
+      [lastError, startedBeforeMs, siteId],
+    );
+    return r.rows.map(rowToPost);
+  },
+
+  /** approved → late for posts scheduled before the cutoff. */
+  async markLate(scheduledBeforeMs: number, lastError: string, siteId: string | null = null): Promise<SocialPost[]> {
+    const r = await getPool().query<PostRow>(
+      `UPDATE social_posts SET status = 'late', last_error = $1, version = version + 1, updated_at = now()
+       WHERE status = 'approved' AND ($3::uuid IS NULL OR site_id = $3)
+         AND scheduled_at < to_timestamp($2::double precision / 1000.0) RETURNING *`,
+      [lastError, scheduledBeforeMs, siteId],
+    );
+    return r.rows.map(rowToPost);
+  },
+
+  /** Merges remote ids into a post this publisher still holds; null if the claim was lost. */
+  async recordRemoteIds(post: SocialPost, ids: Record<string, string>): Promise<SocialPost | null> {
+    const r = await getPool().query<PostRow>(
+      `UPDATE social_posts SET remote_ids = remote_ids || $4::jsonb, updated_at = now()
+       WHERE id = $1 AND site_id = $2 AND version = $3 AND status = 'publishing' RETURNING *`,
+      [post.id, post.siteId, post.version, JSON.stringify(ids)],
+    );
+    return r.rows[0] ? rowToPost(r.rows[0]) : null;
+  },
+
+  /** Ends a claim: publishing → published | failed | needs_review | approved (kill switch). */
+  async finishPublishing(
+    post: SocialPost, status: 'published' | 'failed' | 'needs_review' | 'approved', lastError: string | null,
+  ): Promise<SocialPost | null> {
+    const r = await getPool().query<PostRow>(
+      `UPDATE social_posts SET status = $4::text, last_error = $5::text, version = version + 1, updated_at = now()
+       WHERE id = $1 AND site_id = $2 AND version = $3 AND status = 'publishing' RETURNING *`,
+      [post.id, post.siteId, post.version, status, lastError],
+    );
+    return r.rows[0] ? rowToPost(r.rows[0]) : null;
+  },
 };

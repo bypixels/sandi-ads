@@ -28,10 +28,12 @@ import {
 } from './services/discussion-monitor.js';
 import { startSnapshotPruner, stopSnapshotPruner } from './services/snapshots.js';
 import { registerSnapshotSignalHandlers } from './services/snapshot-signals.js';
+import { startSocialPublisher } from './services/social-publisher.js';
 
 const log = createServiceLogger('dashboard');
 
 let serverInstance: Server | null = null;
+let stopSocialPublisher: (() => Promise<void>) | null = null;
 
 /**
  * Load stored credentials into process.env.
@@ -90,6 +92,8 @@ export async function startDashboard(): Promise<Server> {
       startDiscussionMonitorScheduler();
       // Start the snapshot retention pruner (24h cadence). Idempotent.
       startSnapshotPruner();
+      // Start the FB/IG publisher (approved posts only; honors MUTATIONS_META). Idempotent.
+      stopSocialPublisher ??= startSocialPublisher();
       resolve(server);
     });
   });
@@ -105,6 +109,8 @@ export async function stopDashboard(): Promise<void> {
   stopSecurityMonitorScheduler();
   stopDiscussionMonitorScheduler();
   stopSnapshotPruner();
+  await stopSocialPublisher?.();
+  stopSocialPublisher = null;
   return new Promise((resolve) => {
     serverInstance!.close(async () => {
       log.info('Dashboard server stopped');

@@ -575,7 +575,9 @@
   }
   .pst-form { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); padding: 16px 18px; margin-bottom: 8px; }
   .pst-form input[type=datetime-local], .pst-note-input { padding: 8px 10px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-md); color: var(--text); font-size: 13px; font-family: inherit; }
-  .pst-note-input { width: 100%; margin-top: 6px; }
+  .pst-note-input { width: 100%; margin-top: 6px; font-size: 16px; }
+  .pst-confirm p { margin: 8px 0; overflow-wrap: anywhere; }
+  .pst-confirm .error-msg:empty { display: none; }
   .pst-platforms { display: flex; gap: 18px; flex-wrap: wrap; }
   .pst-check { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-soft); margin-bottom: 4px; }
   .pst-note { font-size: 12px; color: var(--text-muted); margin: 4px 0; }
@@ -4939,7 +4941,7 @@
   ];
   const PST_IG_MAX = 2200;
   const PST_IMG_MAX = 8 * 1024 * 1024;
-  const pstState = { siteId: null, posts: [], filter: 'all', editingId: null, image: null, uploading: false, approvingId: null, rejectingId: null, busy: false, rowError: null };
+  const pstState = { siteId: null, posts: [], filter: 'all', editingId: null, image: null, uploading: false, approvingId: null, rejectingId: null, recoveryId: null, recoveryAction: null, recoveryVersion: null, busy: false, rowError: null };
 
   async function pstRequest(method, path, body) {
     const res = await fetch(path, { method, headers: authHeaders(), body: body === undefined ? undefined : JSON.stringify(body) });
@@ -4955,7 +4957,7 @@
 
   function pstErrorHtml(err) {
     const details = err.details && err.details.length ? '<ul style="margin:6px 0 0 18px">' + err.details.map(d => '<li>' + esc(d) + '</li>').join('') + '</ul>' : '';
-    return '<div class="error-msg"><strong>' + esc(err.message || 'Solicitud falló') + '</strong>' + details + '</div>';
+    return '<div class="error-msg" role="alert"><strong>' + esc(err.message || 'Solicitud falló') + '</strong>' + details + '</div>';
   }
 
   function pstFmtDateTime(ms) {
@@ -4986,12 +4988,30 @@
     return (data && (data.details && data.details[0] || data.error)) || 'No se pudo subir la imagen.';
   }
 
+  function pstResolution(post, values) {
+    const remoteIds = {};
+    let remaining = false;
+    for (const platform of post.platforms) {
+      if (post.remoteIds && post.remoteIds[platform]) continue;
+      const value = values[platform] || {};
+      const remoteId = (value.remoteId || '').trim();
+      const name = platform === 'facebook' ? 'Facebook' : 'Instagram';
+      if (remoteId && value.notPublished) throw new Error('Para ' + name + ', indicá el ID o marcá que no se publicó, no ambos.');
+      if (remoteId) {
+        if (!/^\d+(_\d+)?$/.test(remoteId)) throw new Error('El ID de ' + name + ' debe ser numérico; Facebook también admite dos números separados por un guion bajo.');
+        remoteIds[platform] = remoteId;
+      } else if (value.notPublished) remaining = true;
+      else throw new Error('Verificá ' + name + ': ingresá el ID publicado o confirmá que no se publicó.');
+    }
+    return { outcome: remaining ? 'not_published' : 'published', remoteIds };
+  }
+
   function metaLoadPosts(el) {
     const site = getActiveSite();
     if (!site) { showEmpty(el, 'Selecciona un cliente para gestionar sus publicaciones'); return; }
     const hasFb = !!site.bindings?.metaPageId;
     const hasIg = !!site.bindings?.metaIgUserId;
-    Object.assign(pstState, { siteId: site.id, posts: [], filter: 'all', editingId: null, image: null, uploading: false, approvingId: null, rejectingId: null, busy: false, rowError: null });
+    Object.assign(pstState, { siteId: site.id, posts: [], filter: 'all', editingId: null, image: null, uploading: false, approvingId: null, rejectingId: null, recoveryId: null, recoveryAction: null, recoveryVersion: null, busy: false, rowError: null });
 
     el.innerHTML = '<div class="pst-form"><h3 id="pstFormTitle" style="margin-bottom:12px">Nueva publicación</h3>'
       + '<div class="form-row"><label>Plataformas</label><div class="pst-platforms">'
@@ -5010,7 +5030,7 @@
       + '<div id="pstFormErr"></div>'
       + '<div class="toolbar"><button class="btn btn-primary" id="pstSave">Guardar borrador</button>'
       + '<button class="btn btn-secondary" id="pstCancelEdit" style="display:none">Cancelar edición</button></div></div>'
-      + '<h3 style="margin:20px 0 10px">Publicaciones</h3><div id="pstList"></div>';
+      + '<div class="toolbar" style="margin-top:20px"><h3>Publicaciones</h3><button class="btn btn-secondary" id="pstRefresh" type="button">Actualizar estados</button></div><div id="pstList" aria-live="polite"></div>';
 
     const $ = id => el.querySelector('#' + id);
     const fb = $('pstFb'), ig = $('pstIg'), msg = $('pstMsg'), at = $('pstAt'), file = $('pstFile');
@@ -5085,15 +5105,18 @@
       }
     }
 
-    async function runAction(id, action, note, version) {
+    async function runAction(id, action, note, version, extra = {}) {
+      if (stale() || pstState.busy) return;
       pstState.busy = true; pstState.rowError = null; renderList();
       try {
-        await pstRequest('POST', '/api/posts/' + encodeURIComponent(id) + '/' + action, { siteId: site.id, note: note || undefined, version });
-        pstState.approvingId = null; pstState.rejectingId = null;
+        await pstRequest('POST', '/api/posts/' + encodeURIComponent(id) + '/' + action, { siteId: site.id, note: note || undefined, version, ...extra });
+        if (stale()) return;
+        pstState.approvingId = null; pstState.rejectingId = null; pstState.recoveryId = null;
         if (pstState.editingId === id) resetForm();
       } catch (err) {
+        if (stale()) return;
         pstState.rowError = { id, err };
-        if (err.status === 409) pstState.approvingId = null;
+        if (err.status === 409) { pstState.approvingId = null; pstState.recoveryId = null; }
       }
       pstState.busy = false;
       await loadList();
@@ -5153,6 +5176,7 @@
     $('pstImg').addEventListener('click', (e) => { if (e.target.closest('#pstImgRemove')) { pstState.image = null; renderImage(); } });
     $('pstSave').addEventListener('click', save);
     $('pstCancelEdit').addEventListener('click', resetForm);
+    $('pstRefresh').addEventListener('click', () => { if (!pstState.busy) loadList(); });
 
     listEl.addEventListener('click', (e) => {
       const btn = e.target.closest('button');
@@ -5166,7 +5190,34 @@
       if (act === 'edit' && post) { loadIntoForm(post); return; }
       if (act === 'approve') { pstState.approvingId = id; pstState.rejectingId = null; renderList(); return; }
       if (act === 'reject') { pstState.rejectingId = id; pstState.approvingId = null; renderList(); return; }
-      if (act === 'back') { pstState.approvingId = null; pstState.rejectingId = null; renderList(); return; }
+      if (['publish-now', 'retry', 'resolve'].includes(act) && post) {
+        pstState.approvingId = null; pstState.rejectingId = null;
+        pstState.recoveryId = id; pstState.recoveryAction = act; pstState.recoveryVersion = post.version;
+        renderList();
+        const panel = listEl.querySelector('[data-recovery="' + id + '"]');
+        if (panel) { const target = panel.querySelector('input, button'); if (target) target.focus(); }
+        return;
+      }
+      if (act === 'recovery-ok' && post && pstState.recoveryId === id) {
+        let extra = {};
+        if (pstState.recoveryAction === 'resolve') {
+          const values = {};
+          for (const platform of post.platforms) {
+            const field = listEl.querySelector('[data-remote-id="' + platform + '"]');
+            const checkbox = listEl.querySelector('[data-not-published="' + platform + '"]');
+            values[platform] = { remoteId: field ? field.value : '', notPublished: !!(checkbox && checkbox.checked) };
+          }
+          try { extra = pstResolution(post, values); }
+          catch (err) {
+            const error = listEl.querySelector('[data-resolution-error="' + id + '"]');
+            if (error) error.textContent = err.message;
+            return;
+          }
+        }
+        runAction(id, pstState.recoveryAction, undefined, pstState.recoveryVersion, extra);
+        return;
+      }
+      if (act === 'back') { pstState.approvingId = null; pstState.rejectingId = null; pstState.recoveryId = null; renderList(); return; }
       if (act === 'approve-ok') { runAction(id, 'approve', undefined, post ? post.version : undefined); return; }
       if (act === 'reject-ok') { const inp = listEl.querySelector('input[data-note="' + id + '"]'); runAction(id, 'reject', inp ? inp.value.trim() : ''); return; }
       if (act === 'cancel') { runAction(id, 'cancel'); }
@@ -5188,11 +5239,35 @@
       + (p.approvedBy ? ' · Aprobada por: ' + esc(pstActor(p.approvedBy)) + (p.approvedAt ? ' el ' + esc(pstFmtDateTime(p.approvedAt)) : '') : '') + '</div>';
     if (p.decisionNote) h += '<div class="pst-meta">Nota: ' + esc(p.decisionNote) + '</div>';
     if (p.lastError) h += '<div class="pst-meta" style="color:var(--poor)">Último error: ' + esc(p.lastError) + '</div>';
-    if (p.status === 'approved' || p.status === 'late') h += '<div class="pst-meta">El publicador automático llega en la Fase 2b.</div>';
+    if (p.status === 'approved') h += '<div class="pst-meta">En cola: se enviará a su hora cuando las publicaciones en Meta estén habilitadas.</div>';
+    if (p.status === 'late') h += '<div class="pst-meta">No se enviará automáticamente. Podés publicarla ahora o cancelarla.</div>';
     if (pstState.rowError && pstState.rowError.id === p.id) h += pstErrorHtml(pstState.rowError.err);
     const id = esc(p.id);
     const b = (act, label, cls) => '<button class="btn ' + (cls || 'btn-secondary') + '" data-id="' + id + '" data-act="' + act + '" style="padding:6px 12px;font-size:12px">' + label + '</button>';
-    if (pstState.approvingId === p.id) {
+    if (pstState.recoveryId === p.id) {
+      const action = pstState.recoveryAction;
+      const title = action === 'publish-now' ? '¿Publicar ahora para ' + esc(site.name) + '?'
+        : action === 'retry' ? '¿Reintentar para ' + esc(site.name) + '?'
+          : 'Verificar el resultado en Meta';
+      h += '<div class="pst-confirm" data-recovery="' + id + '"><strong>' + title + '</strong>';
+      if (action === 'resolve') {
+        h += '<p>Revisá cada plataforma antes de confirmar. Lo ya publicado no se enviará de nuevo.</p>';
+        for (const platform of p.platforms) {
+          const name = platform === 'facebook' ? 'Facebook' : 'Instagram';
+          const remoteId = p.remoteIds && p.remoteIds[platform];
+          if (remoteId) { h += '<p>' + name + ': publicación registrada, ID ' + esc(remoteId) + '.</p>'; continue; }
+          const fieldId = 'pstResolve-' + id + '-' + platform;
+          h += '<div class="form-row"><label for="' + fieldId + '">ID publicado en ' + name + '</label>'
+            + '<input class="pst-note-input" id="' + fieldId + '" data-remote-id="' + platform + '" type="text" maxlength="100" inputmode="numeric" autocomplete="off" placeholder="ID numérico de la publicación">'
+            + '<label class="pst-check"><input type="checkbox" data-not-published="' + platform + '"> Verifiqué que no se publicó en ' + name + '</label></div>';
+        }
+        h += '<p class="pst-note">Al confirmar, solo las plataformas marcadas como no publicadas volverán a la cola.</p>'
+          + '<div class="error-msg" role="alert" data-resolution-error="' + id + '"></div>';
+      } else {
+        h += '<p>Se enviará en el próximo turno si Meta está habilitado. Las plataformas ya publicadas se omiten.</p>';
+      }
+      h += '<div class="toolbar" style="margin-top:8px">' + b('recovery-ok', action === 'resolve' ? 'Confirmar verificación' : 'Confirmar envío', 'btn-primary') + b('back', 'Volver') + '</div></div>';
+    } else if (pstState.approvingId === p.id) {
       h += '<div class="pst-confirm">¿Aprobar esta publicación para ' + esc(site.name) + '? Se publicará ' + (p.scheduledAt ? esc(pstFmtDateTime(p.scheduledAt)) : 'apenas se active el publicador') + '.'
         + '<div class="toolbar" style="margin:8px 0 0">' + b('approve-ok', 'Confirmar', 'btn-primary') + b('back', 'Volver') + '</div></div>';
     } else if (pstState.rejectingId === p.id) {
@@ -5201,7 +5276,13 @@
         + '<div class="toolbar" style="margin:8px 0 0">' + b('reject-ok', 'Rechazar', 'btn-danger') + b('back', 'Volver') + '</div></div>';
     } else if (p.status === 'draft') {
       h += '<div class="toolbar" style="margin:8px 0 0">' + b('edit', 'Editar') + b('approve', 'Aprobar', 'btn-primary') + b('reject', 'Rechazar', 'btn-danger') + b('cancel', 'Cancelar') + '</div>';
-    } else if (p.status === 'approved' || p.status === 'late') {
+    } else if (p.status === 'late') {
+      h += '<div class="toolbar" style="margin:8px 0 0">' + b('publish-now', 'Publicar ahora', 'btn-primary') + b('cancel', 'Cancelar') + '</div>';
+    } else if (p.status === 'failed') {
+      h += '<div class="toolbar" style="margin:8px 0 0">' + b('retry', 'Reintentar pendientes', 'btn-primary') + '</div>';
+    } else if (p.status === 'needs_review') {
+      h += '<div class="toolbar" style="margin:8px 0 0">' + b('resolve', 'Verificar en Meta', 'btn-primary') + '</div>';
+    } else if (p.status === 'approved') {
       h += '<div class="toolbar" style="margin:8px 0 0">' + b('cancel', 'Cancelar') + '</div>';
     }
     return h + '</div>';

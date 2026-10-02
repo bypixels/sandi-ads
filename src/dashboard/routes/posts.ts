@@ -1,7 +1,7 @@
 /**
  * Social posts routes — FB/IG drafts, human approval and image uploads.
  * Admin only: the reviewer role is refused here too, not just by the router.
- * Nothing in these routes talks to Meta (phase 2a).
+ * Nothing in these routes talks to Meta: services/social-publisher.ts publishes approved posts.
  * A pinned server (SANDI_ADS_SITE_ID) only serves its own client: a missing
  * siteId means the pin, any other siteId is refused with 403.
  *
@@ -10,6 +10,9 @@
  *   PATCH /api/posts/:id                    → edit draft (body.siteId must match)
  *   POST  /api/posts/:id/approve|reject|cancel  body { siteId, note? }; approve also needs
  *         { version } (the one the reviewer saw): a changed draft answers 409
+ *   POST  /api/posts/:id/publish-now|retry  body { siteId, version }: late|failed → approved (due now)
+ *   POST  /api/posts/:id/resolve  body { siteId, version, outcome: 'published'|'not_published', remoteIds? }:
+ *         needs_review → published | approved. A stale version answers 409
  *   POST  /api/media?siteId=<uuid>          → raw image body → StoredMedia (audited)
  */
 
@@ -29,7 +32,9 @@ const log = createServiceLogger('posts-api');
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ID_PATTERN = /^\/api\/posts\/([0-9a-f-]{36})$/i;
-const ACTION_PATTERN = /^\/api\/posts\/([0-9a-f-]{36})\/(approve|reject|cancel)$/i;
+const ACTION_PATTERN = /^\/api\/posts\/([0-9a-f-]{36})\/(approve|reject|cancel|publish-now|retry|resolve)$/i;
+const VERSIONED_ACTIONS = new Set(['approve', 'publish-now', 'retry', 'resolve']);
+const OUTCOMES = new Set(['published', 'not_published']);
 const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const NOTE_MAX = 1000;
 const NOT_FOUND = 'Publicación no encontrada para este sitio o ya no admite esa acción.';
@@ -218,15 +223,27 @@ export async function handlePostsRoute(req: IncomingMessage, res: ServerResponse
       if (body.note !== undefined && (typeof body.note !== 'string' || body.note.length > NOTE_MAX)) {
         errors.push(`La nota debe ser texto de hasta ${NOTE_MAX} caracteres.`);
       }
-      if (action === 'approve' && !Number.isInteger(body.version)) errors.push('version es obligatoria: indica la versión de la publicación que revisaste.');
+      if (VERSIONED_ACTIONS.has(action) && !Number.isInteger(body.version)) errors.push('version es obligatoria: indica la versión de la publicación que revisaste.');
+      if (action === 'resolve') {
+        if (typeof body.outcome !== 'string' || !OUTCOMES.has(body.outcome)) errors.push('outcome debe ser "published" o "not_published".');
+        const ids = body.remoteIds;
+        if (ids !== undefined && (typeof ids !== 'object' || ids === null || Array.isArray(ids) || !Object.values(ids).every(v => typeof v === 'string'))) {
+          errors.push('remoteIds debe ser un objeto con los identificadores de cada plataforma.');
+        }
+      }
       if (errors.length > 0) {
         invalid(res, errors);
         return true;
       }
       const note = (body.note as string | undefined)?.trim() || undefined;
-      const post = action === 'approve' ? await socialPostsStore.approve(id, siteId, 'admin', body.version as number, note)
+      const version = body.version as number;
+      const post = action === 'approve' ? await socialPostsStore.approve(id, siteId, 'admin', version, note)
         : action === 'reject' ? await socialPostsStore.reject(id, siteId, 'admin', note)
-          : await socialPostsStore.cancel(id, siteId, 'admin');
+          : action === 'publish-now' ? await socialPostsStore.publishNow(id, siteId, version, 'admin')
+            : action === 'retry' ? await socialPostsStore.retry(id, siteId, version, 'admin')
+              : action === 'resolve'
+                ? await socialPostsStore.resolve(id, siteId, version, body.outcome as 'published' | 'not_published', 'admin', (body.remoteIds ?? {}) as Record<string, string>)
+                : await socialPostsStore.cancel(id, siteId, 'admin');
       sendJson(res, post ? { post } : { error: NOT_FOUND }, post ? 200 : 404);
       return true;
     }
